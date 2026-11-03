@@ -1,0 +1,5 @@
+set(TP_HAL ${THIRD_PARTY}/stm32_hal/stm32f4xx/1.8.5)
+add_library(drv_sd STATIC ${TP_HAL}/Src/stm32f4xx_hal_sd.c)
+target_link_libraries(drv_sd PUBLIC drv_core)
+target_compile_options(drv_sd PRIVATE -Wno-unused-parameter -Wno-sign-compare)
+target_sources(drv_sd PRIVATE ${TP_HAL}/Src/stm32f4xx_ll_sdmmc.c)

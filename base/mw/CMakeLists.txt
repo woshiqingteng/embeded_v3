@@ -1,0 +1,6 @@
+add_subdirectory(cherryusb)
+add_subdirectory(fatfs)
+add_subdirectory(littlefs)
+add_subdirectory(easylogger)
+add_subdirectory(lettershell)
+add_subdirectory(lvgl)

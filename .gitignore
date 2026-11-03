@@ -1,0 +1,21 @@
+# build output
+**/build
+
+# cmake user overrides
+CMakeUserPresets.json
+
+# editors / os
+.cache/
+*.user
+*.swp
+**/.DS_Store
+**/Thumbs.db
+**/.ruff_cache/
+
+# HIL test logs
+test/log/
+
+# python bytecode
+**/__pycache__
+**/.pytest_cache
+*.pyc

@@ -1,0 +1,7 @@
+add_subdirectory(stm32f4_hal/drv_core)
+add_subdirectory(stm32f4_hal/drv_uart)
+add_subdirectory(stm32f4_hal/drv_tim)
+add_subdirectory(stm32f4_hal/drv_adc)
+add_subdirectory(stm32f4_hal/drv_spi)
+add_subdirectory(stm32f4_hal/drv_iwdg)
+add_subdirectory(stm32f4_hal/drv_sd)
