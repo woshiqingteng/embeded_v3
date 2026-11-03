@@ -73,8 +73,43 @@ FreeRTOS 11.3.3 的 `uxCriticalNesting` 在调度器启动前为 `0xaaaaaaaa`。
 
 后续建议：将 LittleFS/日志/USB 等依赖 FreeRTOS 对象和阻塞操作的初始化迁移到启动任务中，彻底移除 `irq_unmask()` 兼容处理。
 
-## 7. 后续工作
-1. 连接 UART 或使用 USB CDC，完成串口 Shell 全命令验收。
+## 7. 当前问题修复计划：USB MSC 挂载不可读
+当前现象：USB 已连接，PC 能看到 Mass Storage 设备，但 U 盘/盘符无法正常读取。USART1 已连接，USB 已连接；串口调试链路视实际 COM 口可用性用于抓取日志。
+
+### 7.1 复现与证据采集
+- 用 USART1/COM 口确认固件启动日志、Shell 提示符和 `usb`/`sd` 命令输出。
+- 记录 PC 端枚举结果：VID/PID、容量、盘符、读写错误。
+- 用调试器读取：`g_ready`、`g_owner`、`g_msc_ready`、`bsp_sd_get_info()` 的 `block_count/block_size`、USB MSC 容量回调返回值。
+- 记录 USB MSC 的 `usbd_msc_sector_read/write` 调用次数、扇区号、长度和返回值。
+
+### 7.2 SD 卡与块设备路径排查
+- 验证 `sdio_init()`、SD 卡类型/容量、4-bit 总线、时钟分频和读写单扇区/多扇区。
+- 验证 `bsp_sd_acquire()`/`bsp_sd_release()` 的 owner 切换，确保 MSC 获取后 `bsp_sd_read()` 返回成功。
+- 验证空卡、非 FAT 卡、FAT 卡三种情况下的容量与原始扇区读取。
+- 如 SD 初始化成功但容量为 0 或读失败，修正 SDIO 初始化/卡信息获取/读写实现。
+
+### 7.3 MSC 类与 USB 描述符排查
+- 核对 `usbd_msc_get_cap()` 返回的 block count/size，确认主机看到的容量非 0。
+- 核对 MSC Bulk IN/OUT endpoint 地址、最大包长、双缓冲和 `CONFIG_USBDEV_MSC_MAX_BUFSIZE`。
+- 核对 CDC+MSC 复合描述符、IAD/接口编号、配置总长度和端点分配。
+- 检查 `usbd_msc_sector_read/write` 的返回值、长度校验和缓冲区生命周期。
+- 修正 FatFs/MSC 互斥逻辑，保证 MSC 首次扇区访问前完成 unmount/acquire，并避免并发访问。
+
+### 7.4 修复与回归
+- 优先保证只读：PC 能读取容量、分区表和文件系统/原始扇区。
+- 再验证写入、读回、拔插、重复挂载和 FatFs/MSC 切换。
+- 验证 USB CDC 回显、USART1 Shell、LittleFS、ADC/PWM/按键、看门狗。
+- Debug/Release 全量构建，OpenOCD 烧录校验，连续运行无 HardFault/复位。
+
+### 7.5 验收标准
+- PC 能稳定识别 MSC 容量，不再显示 0 字节或读取失败。
+- 主机可读取 SD 卡分区/文件系统；写入后读回一致。
+- USB 断开后 `sd mount`/`sd ls` 可用；USB 接入时 MSC/FatFs 不并发冲突。
+- USART1 Shell 命令全部可用，USB CDC 回显可用。
+- Debug/Release 构建无本项目错误；HIL 运行无 HardFault、无意外 IWDG 复位。
+
+## 8. 后续工作
+1. 完成上述 USB MSC 修复与全量 HIL。
 2. 断开 USB，使用 FAT 格式 SD 卡验证 `sd mount/ls/umount` 与 FatFs 读写。
-3. 验证 MSC 读写、CDC 回显、OLED 显示、硬件按键、IWDG 超时复位。
+3. 验证 OLED 显示、硬件按键和 IWDG 超时复位。
 4. 评估将启动期初始化迁移到 `task_boot`，消除 FreeRTOS 调度器启动前临界区问题。

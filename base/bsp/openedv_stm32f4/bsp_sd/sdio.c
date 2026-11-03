@@ -97,39 +97,59 @@ uint8_t get_sd_card_state(void)
 uint8_t sd_read_disk(uint8_t *pbuf, uint32_t saddr, uint32_t cnt)
 {
     uint8_t  sta = (uint8_t)HAL_OK;
-    uint32_t timeout = SD_TIMEOUT_COUNT;
     long long lsector = (long long)saddr;
 
-    sta = (uint8_t)HAL_SD_ReadBlocks(&g_sdcard_handle, pbuf, lsector, cnt, SD_TIMEOUT_COUNT);
-
-    while (get_sd_card_state() != SD_TRANSFER_OK)
+    for (uint8_t attempt = 0U; attempt < 3U; attempt++)
     {
-        if (timeout-- == 0U)
-        {
-            sta = SD_TRANSFER_BUSY;
-            break;
-        }
-    }
+        uint32_t timeout = SD_TIMEOUT_COUNT;
 
+        sta = (uint8_t)HAL_SD_ReadBlocks(&g_sdcard_handle, pbuf, lsector, cnt, SD_TIMEOUT_COUNT);
+        if (sta == (uint8_t)HAL_OK)
+        {
+            while (get_sd_card_state() != SD_TRANSFER_OK)
+            {
+                if (timeout-- == 0U)
+                {
+                    sta = SD_TRANSFER_BUSY;
+                    break;
+                }
+            }
+        }
+        if (sta == (uint8_t)HAL_OK)
+        {
+            return 0U;
+        }
+        HAL_Delay(1U);
+    }
     return sta;
 }
 
 uint8_t sd_write_disk(uint8_t *pbuf, uint32_t saddr, uint32_t cnt)
 {
     uint8_t  sta = (uint8_t)HAL_OK;
-    uint32_t timeout = SD_TIMEOUT_COUNT;
     long long lsector = (long long)saddr;
 
-    sta = (uint8_t)HAL_SD_WriteBlocks(&g_sdcard_handle, pbuf, lsector, cnt, SD_TIMEOUT_COUNT);
-
-    while (get_sd_card_state() != SD_TRANSFER_OK)
+    for (uint8_t attempt = 0U; attempt < 3U; attempt++)
     {
-        if (timeout-- == 0U)
-        {
-            sta = SD_TRANSFER_BUSY;
-            break;
-        }
-    }
+        uint32_t timeout = SD_TIMEOUT_COUNT;
 
+        sta = (uint8_t)HAL_SD_WriteBlocks(&g_sdcard_handle, pbuf, lsector, cnt, SD_TIMEOUT_COUNT);
+        if (sta == (uint8_t)HAL_OK)
+        {
+            while (get_sd_card_state() != SD_TRANSFER_OK)
+            {
+                if (timeout-- == 0U)
+                {
+                    sta = SD_TRANSFER_BUSY;
+                    break;
+                }
+            }
+        }
+        if (sta == (uint8_t)HAL_OK)
+        {
+            return 0U;
+        }
+        HAL_Delay(1U);
+    }
     return sta;
 }

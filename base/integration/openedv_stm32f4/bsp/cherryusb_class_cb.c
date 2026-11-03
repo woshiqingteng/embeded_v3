@@ -94,6 +94,14 @@ static const struct usb_descriptor composite_descriptor =
 
 static volatile uint8_t g_event;
 static volatile bool    g_msc_active;
+volatile uint32_t g_msc_read_calls;
+volatile uint32_t g_msc_read_ok;
+volatile uint32_t g_msc_read_fail;
+volatile uint32_t g_msc_last_lba;
+volatile uint32_t g_msc_last_len;
+volatile uint32_t g_msc_write_calls;
+volatile uint32_t g_msc_write_ok;
+volatile uint32_t g_msc_write_fail;
 static mw_cherryusb_msc_prepare_cb_t g_msc_prepare;
 static mw_cherryusb_cdc_rx_cb_t      g_cdc_rx_cb;
 static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_cdc_rx_buf[512];
@@ -246,33 +254,67 @@ void usbd_msc_get_cap(uint8_t busid, uint8_t lun, uint32_t *block_num,
 int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector,
                          uint8_t *buffer, uint32_t length)
 {
+    int ret;
+
     (void)busid;
     (void)lun;
 
+    g_msc_read_calls++;
+    g_msc_last_lba = sector;
+    g_msc_last_len = length;
+
     if (g_msc_prepare != 0 && !g_msc_prepare())
     {
+        g_msc_read_fail++;
         return -1;
     }
     if ((length % 512U) != 0U)
     {
+        g_msc_read_fail++;
         return -1;
     }
-    return bsp_sd_read(buffer, sector, length / 512U);
+    ret = bsp_sd_read(buffer, sector, length / 512U);
+    if (ret == 0)
+    {
+        g_msc_read_ok++;
+    }
+    else
+    {
+        g_msc_read_fail++;
+    }
+    return ret;
 }
 
 int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector,
                           uint8_t *buffer, uint32_t length)
 {
+    int ret;
+
     (void)busid;
     (void)lun;
 
+    g_msc_write_calls++;
+    g_msc_last_lba = sector;
+    g_msc_last_len = length;
+
     if (g_msc_prepare != 0 && !g_msc_prepare())
     {
+        g_msc_write_fail++;
         return -1;
     }
     if ((length % 512U) != 0U)
     {
+        g_msc_write_fail++;
         return -1;
     }
-    return bsp_sd_write(buffer, sector, length / 512U);
+    ret = bsp_sd_write(buffer, sector, length / 512U);
+    if (ret == 0)
+    {
+        g_msc_write_ok++;
+    }
+    else
+    {
+        g_msc_write_fail++;
+    }
+    return ret;
 }
