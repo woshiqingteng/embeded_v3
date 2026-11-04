@@ -8,6 +8,9 @@
 
 #include <stdbool.h>
 
+#include "FreeRTOS.h"
+#include "semphr.h"
+
 #include "oled.h"
 #include "oledfont.h"
 #include "bsp_core.h"
@@ -32,6 +35,7 @@ typedef enum
 } oled_leading_t;
 
 static uint8_t g_oled_gram[OLED_WIDTH_PX][OLED_PAGE_COUNT];
+static SemaphoreHandle_t g_oled_mutex;
 
 static void oled_draw_point(uint8_t x, uint8_t y, bool dot)
 {
@@ -224,8 +228,29 @@ void oled_show_num(uint8_t x, uint8_t y, uint32_t num, uint8_t len, oled_font_t 
     }
 }
 
+void oled_lock(void)
+{
+    if (g_oled_mutex != 0)
+    {
+        (void)xSemaphoreTakeRecursive(g_oled_mutex, portMAX_DELAY);
+    }
+}
+
+void oled_unlock(void)
+{
+    if (g_oled_mutex != 0)
+    {
+        (void)xSemaphoreGiveRecursive(g_oled_mutex);
+    }
+}
+
 void oled_init(void)
 {
+    if (g_oled_mutex == 0)
+    {
+        g_oled_mutex = xSemaphoreCreateRecursiveMutex();
+    }
+
     oled_ssd1306_init();
     oled_clear();
 }

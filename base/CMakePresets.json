@@ -12,8 +12,7 @@
       "generator": "Ninja",
       "cacheVariables": {
         "TOOLCHAIN": "arm_gcc",
-        "BOARD": "openedv_stm32f4",
-        "ENABLE_LVGL": "OFF"
+        "BOARD": "openedv_stm32f4"
       }
     },
     {

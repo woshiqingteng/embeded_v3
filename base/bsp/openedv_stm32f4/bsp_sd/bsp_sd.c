@@ -12,8 +12,6 @@ int bsp_sd_init(void)
     if (g_sd_mutex == 0)
     {
         g_sd_mutex = xSemaphoreCreateMutex();
-        __set_BASEPRI(0U);
-        __enable_irq();
     }
 
     g_ready = (sdio_init() == 0U) ? 1U : 0U;
@@ -72,19 +70,33 @@ void bsp_sd_release(bsp_sd_owner_t owner)
 
 bsp_sd_owner_t bsp_sd_owner(void)
 {
-    return g_owner;
+    bsp_sd_owner_t owner = BSP_SD_OWNER_NONE;
+
+    if (g_sd_mutex != 0 && xSemaphoreTake(g_sd_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        owner = g_owner;
+        (void)xSemaphoreGive(g_sd_mutex);
+    }
+    return owner;
+}
+
+bool bsp_sd_is_writable(void)
+{
+    /* Never probe by writing: the last sector may contain filesystem data. */
+    return (BSP_SD_WRITABLE != 0);
 }
 
 void bsp_sd_set_io_hook(bsp_sd_io_hook_t hook)
 {
     g_io_hook = hook;
+    sdio_set_io_hook(hook);
 }
 
 int bsp_sd_read(uint8_t *buf, uint32_t lba, uint32_t count)
 {
     int ret = -1;
 
-    if ((buf == 0) || (count == 0U) || (g_owner == BSP_SD_OWNER_NONE))
+    if ((buf == 0) || (count == 0U))
     {
         return -1;
     }
@@ -92,7 +104,16 @@ int bsp_sd_read(uint8_t *buf, uint32_t lba, uint32_t count)
     {
         return -1;
     }
+    if (g_owner == BSP_SD_OWNER_NONE)
+    {
+        (void)xSemaphoreGive(g_sd_mutex);
+        return -1;
+    }
 
+    if (g_io_hook != 0)
+    {
+        g_io_hook();
+    }
     ret = (sd_read_disk(buf, lba, count) == 0U) ? 0 : -1;
     if (g_io_hook != 0)
     {
@@ -104,17 +125,30 @@ int bsp_sd_read(uint8_t *buf, uint32_t lba, uint32_t count)
 
 int bsp_sd_write(const uint8_t *buf, uint32_t lba, uint32_t count)
 {
-    int ret = -1;
-
-    if ((buf == 0) || (count == 0U) || (g_owner == BSP_SD_OWNER_NONE))
+    if ((buf == 0) || (count == 0U))
     {
         return -1;
     }
+#if (BSP_SD_WRITABLE == 0)
+    (void)lba;
+    return -1;
+#else
+    int ret = -1;
+
     if (xSemaphoreTake(g_sd_mutex, portMAX_DELAY) != pdTRUE)
     {
         return -1;
     }
+    if (g_owner == BSP_SD_OWNER_NONE)
+    {
+        (void)xSemaphoreGive(g_sd_mutex);
+        return -1;
+    }
 
+    if (g_io_hook != 0)
+    {
+        g_io_hook();
+    }
     ret = (sd_write_disk((uint8_t *)buf, lba, count) == 0U) ? 0 : -1;
     if (g_io_hook != 0)
     {
@@ -122,4 +156,5 @@ int bsp_sd_write(const uint8_t *buf, uint32_t lba, uint32_t count)
     }
     (void)xSemaphoreGive(g_sd_mutex);
     return ret;
+#endif
 }

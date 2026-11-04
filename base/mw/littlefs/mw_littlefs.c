@@ -1,7 +1,7 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include "mw_littlefs.h"
-#include "lfs_port.h"
+#include "lfs_config.h"
 
 static lfs_t             g_lfs;
 static SemaphoreHandle_t g_lfs_mutex;
@@ -13,7 +13,6 @@ int mw_littlefs_init(void)
     {
         g_lfs_mutex = xSemaphoreCreateMutex();
     }
-    lfs_port_init();
     return (g_lfs_mutex != 0) ? 0 : -1;
 }
 

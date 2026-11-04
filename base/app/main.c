@@ -1,11 +1,11 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "app_init.h"
+#include "system_init.h"
 
 int main(void)
 {
-    if (app_init() != 0)
+    if (system_init() != 0)
     {
         for (;;)
         {

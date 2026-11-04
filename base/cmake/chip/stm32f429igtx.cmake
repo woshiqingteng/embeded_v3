@@ -1,0 +1,18 @@
+set(MCU_ARCH       cortex-m4)
+set(MCU_VENDOR     stm32)
+set(MCU_FAMILY     stm32f4xx)
+set(MCU_MACRO      STM32F429xx)
+set(MCU_HSE_VALUE  25000000)
+set(MCU_HSI_VALUE  16000000)
+set(MCU_CMSIS_DEVICE ${TP_CMSIS_DEVICE})
+
+set(MCU_BOOT_MODE flash CACHE STRING "Boot mode (flash|ram)")
+if(MCU_BOOT_MODE STREQUAL "flash")
+    set(MCU_FLASH_BASE 0x08000000)
+elseif(MCU_BOOT_MODE STREQUAL "ram")
+    set(MCU_FLASH_BASE 0x20000000)
+else()
+    message(FATAL_ERROR "Invalid MCU_BOOT_MODE: ${MCU_BOOT_MODE}")
+endif()
+
+include(${CMAKE_CURRENT_LIST_DIR}/../cpu/${MCU_ARCH}.cmake)

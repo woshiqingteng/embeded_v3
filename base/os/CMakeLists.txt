@@ -1,2 +1,1 @@
-add_subdirectory(freertos/core)
-add_subdirectory(freertos/port)
+add_subdirectory(freertos)

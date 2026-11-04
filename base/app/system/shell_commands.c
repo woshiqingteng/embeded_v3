@@ -9,7 +9,6 @@
 #include "app_ipc.h"
 #include "app_state.h"
 #include "bsp_adc.h"
-#include "bsp_sd.h"
 #include "oled.h"
 #include "bsp_pwm.h"
 #include "mw_fatfs.h"
@@ -40,7 +39,6 @@ static int cmd_adc(int argc, char *argv[]);
 static int cmd_pwm(int argc, char *argv[]);
 static int cmd_key(int argc, char *argv[]);
 static int cmd_sd(int argc, char *argv[]);
-static int cmd_sdraw(int argc, char *argv[]);
 static int cmd_lfs(int argc, char *argv[]);
 static int cmd_log(int argc, char *argv[]);
 static int cmd_usb(int argc, char *argv[]);
@@ -99,7 +97,6 @@ const ShellCommand shellCommandList[] =
     CMD(pwm, cmd_pwm, set/get pwm permille),
     CMD(key, cmd_key, inject key event),
     CMD(sd, cmd_sd, fatfs mount/umount/ls),
-    CMD(sdraw, cmd_sdraw, raw sd sector read),
     CMD(lfs, cmd_lfs, littlefs mount/umount/format/ls),
     CMD(log, cmd_log, log test),
     CMD(usb, cmd_usb, usb status),
@@ -228,54 +225,6 @@ static int cmd_sd(int argc, char *argv[])
     return 0;
 }
 
-static int cmd_sdraw(int argc, char *argv[])
-{
-    uint8_t buf[512];
-    uint32_t lba = (argc > 1) ? (uint32_t)strtoul(argv[1], 0, 0) : 0U;
-    Shell *sh = shellGetCurrent();
-
-    if (bsp_sd_read(buf, lba, 1U) != 0)
-    {
-        shellPrint(sh, "sdraw lba=%lu fail", (unsigned long)lba);
-        (void)shellWriteString(sh, s_nl);
-        return 0;
-    }
-    shellPrint(sh, "sdraw lba=%lu ok %02x%02x%02x%02x %02x%02x%02x%02x",
-               (unsigned long)lba, buf[0], buf[1], buf[2], buf[3],
-               buf[4], buf[5], buf[6], buf[7]);
-    (void)shellWriteString(sh, s_nl);
-    if (lba == 0U)
-    {
-        shellPrint(sh, "mbr p0=%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x sig=%02x%02x",
-                   buf[446], buf[447], buf[448], buf[449],
-                   buf[450], buf[451], buf[452], buf[453],
-                   buf[454], buf[455], buf[456], buf[457],
-                   buf[458], buf[459], buf[460], buf[461],
-                   buf[510], buf[511]);
-        (void)shellWriteString(sh, s_nl);
-    }
-    else if (lba == 63U)
-    {
-        uint32_t tot32 = (uint32_t)buf[32] | ((uint32_t)buf[33] << 8) |
-                         ((uint32_t)buf[34] << 16) | ((uint32_t)buf[35] << 24);
-        uint32_t fatsz32 = (uint32_t)buf[36] | ((uint32_t)buf[37] << 8) |
-                           ((uint32_t)buf[38] << 16) | ((uint32_t)buf[39] << 24);
-        uint32_t rootclus = (uint32_t)buf[44] | ((uint32_t)buf[45] << 8) |
-                            ((uint32_t)buf[46] << 16) | ((uint32_t)buf[47] << 24);
-
-        shellPrint(sh, "bpb bps=%u spc=%u rsv=%u nf=%u root=%u tot16=%u fatsz16=%u tot32=%lu fatsz32=%lu rootclus=%lu",
-                   (unsigned)(buf[11] | (buf[12] << 8)), (unsigned)buf[13],
-                   (unsigned)(buf[14] | (buf[15] << 8)), (unsigned)buf[16],
-                   (unsigned)(buf[17] | (buf[18] << 8)),
-                   (unsigned)(buf[19] | (buf[20] << 8)),
-                   (unsigned)(buf[22] | (buf[23] << 8)),
-                   (unsigned long)tot32, (unsigned long)fatsz32,
-                   (unsigned long)rootclus);
-        (void)shellWriteString(sh, s_nl);
-    }
-    return 0;
-}
-
 static int cmd_lfs(int argc, char *argv[])
 {
     Shell *sh = shellGetCurrent();
@@ -374,8 +323,10 @@ static int cmd_oled(int argc, char *argv[])
     Shell *sh = shellGetCurrent();
     (void)argc;
     (void)argv;
+    oled_lock();
     oled_show_string(0, 0, "SHELL OK", OLED_FONT_6X8);
     oled_refresh();
+    oled_unlock();
     shellPrint(sh, "oled ok");
     (void)shellWriteString(sh, s_nl);
     return 0;

@@ -11,25 +11,13 @@
 
 #include "stm32f4xx_hal.h"
 
-/* Pin assignment (same as the vendor board). */
-#define SD_D0_GPIO_PORT    GPIOC
-#define SD_D0_GPIO_PIN     GPIO_PIN_8
-#define SD_D1_GPIO_PORT    GPIOC
-#define SD_D1_GPIO_PIN     GPIO_PIN_9
-#define SD_D2_GPIO_PORT    GPIOC
-#define SD_D2_GPIO_PIN     GPIO_PIN_10
-#define SD_D3_GPIO_PORT    GPIOC
-#define SD_D3_GPIO_PIN     GPIO_PIN_11
-#define SD_CLK_GPIO_PORT   GPIOC
-#define SD_CLK_GPIO_PIN    GPIO_PIN_12
-#define SD_CMD_GPIO_PORT   GPIOD
-#define SD_CMD_GPIO_PIN    GPIO_PIN_2
 
-/* Transfer clock divider: SDIO clock = 48 MHz / (div + 2) = 16 MHz. The <400 kHz
+/* Transfer clock divider: SDIO clock = 48 MHz / (div + 2) = 2 MHz. The <400 kHz
  * identification phase is handled by the SDIO init sequence, not this value. */
-#define SDIO_TRANSF_CLK_DIV   4
+#define SDIO_TRANSF_CLK_DIV   22
 
-#define SD_TIMEOUT_COUNT             ((uint32_t)100000000)
+#define SD_TIMEOUT_COUNT             ((uint32_t)3000)
+#define SD_STATE_TIMEOUT_COUNT       ((uint32_t)1000000)
 #define SD_TRANSFER_OK         ((uint8_t)0x00)
 #define SD_TRANSFER_BUSY       ((uint8_t)0x01)
 
@@ -58,6 +46,7 @@ typedef struct
 /** @brief  Initialise the SDIO peripheral and the card (4-bit bus).
  *  @return 0 on success, non-zero on failure. */
 uint8_t sdio_init(void);
+void sdio_set_io_hook(void (*hook)(void));
 
 /** @brief  Read the cached card information. */
 uint8_t get_sd_card_info(HAL_SD_CardInfoTypeDef *cardinfo);

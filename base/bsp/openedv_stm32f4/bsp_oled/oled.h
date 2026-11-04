@@ -22,6 +22,8 @@ typedef enum
 
 /** @brief  Initialise the SSD1306 and clear the screen. */
 void oled_init(void);
+void oled_lock(void);
+void oled_unlock(void);
 
 void oled_clear(void);
 void oled_display_on(void);

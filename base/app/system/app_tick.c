@@ -1,5 +1,4 @@
 #include "FreeRTOS.h"
-#include "timers.h"
 #include "task.h"
 
 #include "app_tick.h"
@@ -12,10 +11,9 @@
 
 static const uint8_t s_uart2_frame[] = "USART2 TICK\r\n";
 
-static void app_tick_cb(TimerHandle_t timer)
+static void app_tick_run(void)
 {
     static uint32_t n;
-    (void)timer;
 
     n++;
     app_wdg_kick(WDG_BIT_TICK);
@@ -70,14 +68,20 @@ static void app_tick_cb(TimerHandle_t timer)
     }
 }
 
+static void task_tick(void *arg)
+{
+    TickType_t last = xTaskGetTickCount();
+    (void)arg;
+
+    for (;;)
+    {
+        app_tick_run();
+        vTaskDelayUntil(&last, pdMS_TO_TICKS(TICK_PERIOD_MS));
+    }
+}
+
 int app_tick_start(void)
 {
-    g_app_ipc.tick_timer = xTimerCreate("tick10",
-                                        pdMS_TO_TICKS(TICK_PERIOD_MS),
-                                        pdTRUE, 0, app_tick_cb);
-    if (g_app_ipc.tick_timer == 0)
-    {
-        return -1;
-    }
-    return (xTimerStart(g_app_ipc.tick_timer, 0) == pdPASS) ? 0 : -1;
+    return (xTaskCreate(task_tick, "tick", 512U, 0, 6U,
+                        &g_app_ipc.task_tick) == pdPASS) ? 0 : -1;
 }

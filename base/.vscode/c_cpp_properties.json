@@ -6,8 +6,7 @@
                 "${workspaceFolder}/**"
             ],
             "defines": [
-                "STM32F429xx",
-                "APP_BANNER"
+                "STM32F429xx"
             ],
             "compilerPath": "arm-none-eabi-gcc",
             "cStandard": "c11",

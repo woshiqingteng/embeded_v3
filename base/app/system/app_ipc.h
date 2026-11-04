@@ -5,7 +5,6 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "timers.h"
 #include "event_groups.h"
 #include "semphr.h"
 
@@ -16,7 +15,6 @@
 #define WDG_BIT_OLED    (1U << 4)
 #define WDG_BIT_SHELL   (1U << 5)
 #define WDG_BIT_USB     (1U << 6)
-#define WDG_BIT_STORAGE (1U << 7)
 #define WDG_BIT_ALL     (WDG_BIT_TICK | WDG_BIT_CTRL | WDG_BIT_ADC | \
                          WDG_BIT_LOG | WDG_BIT_OLED | WDG_BIT_SHELL | WDG_BIT_USB)
 
@@ -29,10 +27,10 @@ typedef struct
     TaskHandle_t task_oled;
     TaskHandle_t task_shell;
     TaskHandle_t task_usb;
+    TaskHandle_t task_tick;
 
     EventGroupHandle_t wdg_event;
     SemaphoreHandle_t  state_mutex;
-    TimerHandle_t      tick_timer;
 } app_ipc_t;
 
 extern app_ipc_t g_app_ipc;

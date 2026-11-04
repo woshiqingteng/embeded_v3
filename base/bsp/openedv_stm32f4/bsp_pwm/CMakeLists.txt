@@ -1,3 +1,3 @@
 add_library(bsp_pwm STATIC bsp_pwm.c)
 target_include_directories(bsp_pwm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(bsp_pwm PUBLIC drv_tim drv_core hal_config)
+target_link_libraries(bsp_pwm PUBLIC drv)
