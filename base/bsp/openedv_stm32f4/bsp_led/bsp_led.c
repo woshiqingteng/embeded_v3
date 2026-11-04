@@ -1,5 +1,6 @@
 #include "stm32f4xx_hal.h"
 #include "bsp_led.h"
+#include "bsp_log.h"
 
 #define LED0_PORT GPIOB
 #define LED0_PIN  GPIO_PIN_1
@@ -20,6 +21,7 @@ void bsp_led_init(void)
 
     bsp_led_off(BSP_LED0);
     bsp_led_off(BSP_LED1);
+    BSP_LOGI("led", "2 channels ready");
 }
 
 void bsp_led_on(bsp_led_t led)

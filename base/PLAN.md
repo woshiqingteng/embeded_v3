@@ -319,3 +319,46 @@ FreeRTOS 11.3.3 的 `uxCriticalNesting` 在调度器启动前为 `0xaaaaaaaa`。
 - 清除 RCC 复位标志后 Release 连续运行约 13 s，`uwTick=13451`，RCC_CSR 无 IWDG 复位标志。
 - `lfs ls` 正常列出根目录与 `log`。
 - 当前 SDIO 使用 4-bit 阻塞模式；DMA 自检代码保留但 `SDIO_USE_DMA=0`。
+
+## 22. BSP 模块日志与 Shell 命令补全（2026-11-04）
+- BSP 日志统一为 `[BSP/I]` / `[BSP/W]` / `[BSP/E]` 格式。
+- 初始化日志下沉到各自模块：
+  - core、uart、led、key、pwm、adc、nor、sd、oled、wdg 的 init 函数内部输出。
+  - `bsp_init.c` 只保留编排，不再打印初始化日志。
+- app task 初始化日志使用 `[APP/I]`，覆盖 ctrl、adc、oled 及系统任务创建。
+- Shell 命令补全（危险命令默认隐藏）：
+  - 系统：`stats`、`uptime`、`heap`、`tasks`、`clock`、`fault`
+  - BSP：`led`、`adc`、`uart`、`pwm`、`key`、`nor id/info/read`、`oled on/off/clear/text/status`
+  - 存储：`sd info/mount/umount/ls/cat`、`lfs info/df/mount/umount/ls/cat`
+  - 其他：`log test/level/tag/flush/status`、`usb status/readonly`、`wdg status`
+  - 已隐藏 `lfs format`、`nor erase/write`、`wdg feed`。
+- `help` 已启用 user/var/key 分类列表，当前命令表完整可见。
+- Debug 构建约 301848 B，Release 约 321752 B；Release 启动日志和 Shell 命令已 HIL 验证。
+
+## 23. 日志单位与 SDIO 模式切换（2026-11-04）
+- BSP 日志增加可读单位：
+  - core：MHz
+  - NOR：MiB
+  - SD：MiB / B
+  - PWM：permille
+  - UART：baud
+  - WDG：s
+  - task stack：words
+  - heap/log drop：B
+- app 初始化日志改走 EasyLogger；BSP 早期日志继续走 `bsp_log`。
+- SDIO 增加运行时模式切换 API：
+  - `sdio_set_dma_mode()` / `sdio_get_dma_mode()`
+  - `bsp_sd_set_dma_enabled()` / `bsp_sd_dma_enabled()`
+  - Shell：`sd dma on|off|status`
+  - 默认阻塞模式；DMA 开启前执行自检，失败则保持阻塞并返回失败。
+- 当前 DMA 自检在板上仍返回超时，`sd dma on` 输出 `failed; blocking mode kept`，不会破坏阻塞读写路径。
+- 清理 `lfs format`、`reboot` 的 Shell 暴露。
+
+## 24. 单位日志与稳定性回归（2026-11-04）
+- BSP 启动日志已带单位：core MHz、NOR MiB、SD MiB/B、PWM permille、task stack words、heap/log B。
+- Release 清除 RCC 标志后连续运行 12 s：`uwTick=14427`，RCC_CSR 无复位标志，故障记录为全 `0xffffffff`。
+- `sdio_recover` 不再从失败传输中重新执行 `HAL_SD_Init`，改为 Abort + 重试，避免 `SD_FindSCR` HardFault。
+- SDIO 运行时切换：
+  - `sd dma status`、`sd dma off` 正常；
+  - `sd dma on` 当前自检超时，保持阻塞模式，不破坏 U 盘读取。
+- Debug/Release 均构建通过；Release FLASH 约 323.6 KB。

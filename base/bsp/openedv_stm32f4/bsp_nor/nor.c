@@ -8,6 +8,7 @@
 #include "stm32f4xx_hal.h"
 #include "nor.h"
 #include "nor_w25q256jv.h"
+#include "bsp_log.h"
 
 /* Command set. */
 #define FLASH_WriteEnable       0x06U
@@ -103,6 +104,9 @@ void nor_init(void)
 {
     nor_w25q256jv_dev_init();
     (void)nor_w25q256jv_probe();
+    BSP_LOGI("nor", "JEDEC=0x%04x size=%lu MiB",
+             (unsigned)nor_w25q256jv_probe(),
+             (unsigned long)(NOR_DEVICE_SIZE_BYTE / (1024U * 1024U)));
 
     if (nor_w25q256jv_addr_bytes() == NOR_4BYTE_MODE_ADDR_BYTES)
     {

@@ -1,5 +1,6 @@
 #include "stm32f4xx_hal.h"
 #include "bsp_adc.h"
+#include "bsp_log.h"
 
 #define ADC_SAMPLES_PER_CHANNEL 32U
 #define ADC_BLOCK_SAMPLES       (BSP_ADC_CHANNELS * ADC_SAMPLES_PER_CHANNEL)
@@ -83,6 +84,7 @@ void bsp_adc_init(void)
 
     adc_dma_init();
     (void)HAL_ADC_Start_DMA(&g_hadc, (uint32_t *)g_dma_buf, ADC_TOTAL_SAMPLES);
+    BSP_LOGI("adc", "ADC1 6 channels ready");
 }
 
 static void adc_process_block(uint32_t offset)

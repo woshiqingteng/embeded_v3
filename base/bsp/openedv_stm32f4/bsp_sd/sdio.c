@@ -30,15 +30,15 @@ HAL_SD_CardInfoTypeDef g_sd_card_info_handle;
 
 static void (*s_io_hook)(void);
 
-/* DMA is kept disabled until the host-side MSC/DMA regression is complete.
- * The DMA callbacks below already use the ISR-safe semaphore API. */
-#define SDIO_USE_DMA 0
+/* DMA is selectable at runtime through sdio_set_dma_mode(). Blocking mode is
+ * the safe default; DMA is never enabled until its self-test succeeds. */
 
 static DMA_HandleTypeDef g_sd_rx_dma;
 static DMA_HandleTypeDef g_sd_tx_dma;
 static SemaphoreHandle_t g_sd_dma_sem;
 static volatile uint8_t  g_sd_dma_status;
-static bool g_sd_use_dma __attribute__((unused));
+static bool g_sd_use_dma;
+static bool g_sd_dma_ready;
 volatile uint32_t g_sd_dma_selftest_result;
 volatile uint32_t g_sd_stat_rx_cb;
 volatile uint32_t g_sd_stat_tx_cb;
@@ -127,9 +127,9 @@ void DMA2_Stream6_IRQHandler(void)
     HAL_DMA_IRQHandler(&g_sd_tx_dma);
 }
 
-static uint8_t __attribute__((unused)) sdio_dma_selftest(void);
+static uint8_t sdio_dma_selftest(void);
 
-static uint8_t __attribute__((unused)) sdio_dma_init(void)
+static uint8_t sdio_dma_init(void)
 {
     __HAL_RCC_DMA2_CLK_ENABLE();
 
@@ -180,7 +180,7 @@ static uint8_t __attribute__((unused)) sdio_dma_init(void)
     return 0U;
 }
 
-static uint8_t __attribute__((unused)) sdio_dma_selftest(void)
+static uint8_t sdio_dma_selftest(void)
 {
     static uint8_t buf[512];
     uint8_t sta = (uint8_t)HAL_SD_ReadBlocks_DMA(&g_sdcard_handle, buf, 0, 1);
@@ -192,6 +192,7 @@ static uint8_t __attribute__((unused)) sdio_dma_selftest(void)
     }
     if (xSemaphoreTake(g_sd_dma_sem, pdMS_TO_TICKS(1000U)) != pdTRUE)
     {
+        (void)HAL_SD_Abort(&g_sdcard_handle);
         return 2U;
     }
     return (g_sd_dma_status == 0U) ? 0U : 3U;
@@ -244,17 +245,13 @@ uint8_t sdio_init(void)
         }
     }
 
+    g_sd_dma_ready = false;
+    g_sd_use_dma = false;
+
     if (HAL_SD_Init(&g_sdcard_handle) != HAL_OK)
     {
         return 1U;
     }
-
-#if (SDIO_USE_DMA == 1)
-    if (sdio_dma_init() != 0U)
-    {
-        return 4U;
-    }
-#endif
 
     HAL_SD_GetCardInfo(&g_sdcard_handle, &g_sd_card_info_handle);
 
@@ -262,11 +259,6 @@ uint8_t sdio_init(void)
     {
         return 2U;
     }
-
-#if (SDIO_USE_DMA == 1)
-    g_sd_dma_selftest_result = sdio_dma_selftest();
-    g_sd_use_dma = (g_sd_dma_selftest_result == 0U);
-#endif
 
     return 0U;
 }
@@ -304,9 +296,11 @@ uint8_t get_sd_card_state(void)
 
 static void sdio_recover(void)
 {
-    (void)HAL_SD_DeInit(&g_sdcard_handle);
+    /* Do not re-run HAL_SD_Init() from a failed data transfer: re-entering
+     * SD_FindSCR while the card/USB path is active has caused HardFaults.
+     * Abort the current data path and let the caller retry in blocking mode. */
+    (void)HAL_SD_Abort(&g_sdcard_handle);
     HAL_Delay(20U);
-    (void)sdio_init();
 }
 static uint8_t sd_read_disk_blocking(uint8_t *pbuf, uint32_t saddr, uint32_t cnt)
 {
@@ -366,7 +360,7 @@ static uint8_t sd_write_disk_blocking(uint8_t *pbuf, uint32_t saddr, uint32_t cn
     return sta;
 }
 
-static uint8_t __attribute__((unused)) sdio_wait_dma(void)
+static uint8_t sdio_wait_dma(void)
 {
     TickType_t ticks = pdMS_TO_TICKS(SD_TIMEOUT_COUNT);
 
@@ -380,14 +374,48 @@ static uint8_t __attribute__((unused)) sdio_wait_dma(void)
     return (g_sd_dma_status == 0U) ? 0U : (uint8_t)HAL_ERROR;
 }
 
+int sdio_set_dma_mode(bool enable)
+{
+    if (!enable)
+    {
+        g_sd_use_dma = false;
+        return 0;
+    }
+
+    if (g_sd_use_dma)
+    {
+        return 0;
+    }
+
+    if (!g_sd_dma_ready)
+    {
+        if (sdio_dma_init() != 0U)
+        {
+            return -1;
+        }
+        g_sd_dma_ready = true;
+    }
+
+    g_sd_dma_selftest_result = sdio_dma_selftest();
+    if (g_sd_dma_selftest_result != 0U)
+    {
+        g_sd_use_dma = false;
+        return -1;
+    }
+
+    g_sd_use_dma = true;
+    return 0;
+}
+
+bool sdio_get_dma_mode(void)
+{
+    return g_sd_use_dma;
+}
+
 uint8_t sd_read_disk(uint8_t *pbuf, uint32_t saddr, uint32_t cnt)
 {
     uint8_t sta = (uint8_t)HAL_OK;
 
-#if (SDIO_USE_DMA == 0)
-    (void)sta;
-    return sd_read_disk_blocking(pbuf, saddr, cnt);
-#else
     if (!g_sd_use_dma || (((uintptr_t)pbuf & 0x3U) != 0U))
     {
         return sd_read_disk_blocking(pbuf, saddr, cnt);
@@ -415,20 +443,17 @@ uint8_t sd_read_disk(uint8_t *pbuf, uint32_t saddr, uint32_t cnt)
         }
         g_sd_stat_error = g_sdcard_handle.ErrorCode;
         g_sd_stat_state = g_sdcard_handle.State;
+        (void)HAL_SD_Abort(&g_sdcard_handle);
+        g_sd_use_dma = false;
         return sd_read_disk_blocking(pbuf, saddr, cnt);
     }
     return sta;
-#endif
 }
 
 uint8_t sd_write_disk(uint8_t *pbuf, uint32_t saddr, uint32_t cnt)
 {
     uint8_t sta = (uint8_t)HAL_OK;
 
-#if (SDIO_USE_DMA == 0)
-    (void)sta;
-    return sd_write_disk_blocking(pbuf, saddr, cnt);
-#else
     if (!g_sd_use_dma || (((uintptr_t)pbuf & 0x3U) != 0U))
     {
         return sd_write_disk_blocking(pbuf, saddr, cnt);
@@ -456,8 +481,9 @@ uint8_t sd_write_disk(uint8_t *pbuf, uint32_t saddr, uint32_t cnt)
         }
         g_sd_stat_error = g_sdcard_handle.ErrorCode;
         g_sd_stat_state = g_sdcard_handle.State;
+        (void)HAL_SD_Abort(&g_sdcard_handle);
+        g_sd_use_dma = false;
         return sd_write_disk_blocking(pbuf, saddr, cnt);
     }
     return sta;
-#endif
 }

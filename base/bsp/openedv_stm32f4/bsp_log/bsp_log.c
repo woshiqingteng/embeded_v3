@@ -1,4 +1,6 @@
 #include <stddef.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 #include "FreeRTOS.h"
 #include "semphr.h"
@@ -15,6 +17,7 @@ static SemaphoreHandle_t g_log_mutex;
 static volatile uint32_t g_dropped;
 static volatile uint8_t  g_uart_enabled;
 static bsp_log_sink_t    g_file_sink;
+static volatile uint8_t  g_log_ready;
 
 void bsp_log_init(void)
 {
@@ -23,6 +26,7 @@ void bsp_log_init(void)
     g_dropped = 0U;
     g_uart_enabled = 0U;
     g_file_sink = 0;
+    g_log_ready = 1U;
 }
 
 void bsp_log_attach_uart(void)
@@ -58,6 +62,68 @@ void bsp_log_write(const uint8_t *data, uint32_t len)
     }
 
     (void)xSemaphoreGive(g_log_mutex);
+}
+
+static void bsp_log_vprintf(const char *source, bsp_log_level_t level,
+                            const char *tag, const char *fmt, va_list ap)
+{
+    static const char level_ch[] = { 'E', 'W', 'I', 'D' };
+    char buf[256];
+    int n;
+    int m;
+
+    if ((g_log_ready == 0U) || (source == 0) || (tag == 0) || (fmt == 0))
+    {
+        return;
+    }
+
+    n = snprintf(buf, sizeof(buf), "[%s/%c] %s: ",
+                 source,
+                 level_ch[level < BSP_LOG_DEBUG ? (int)level : (int)BSP_LOG_DEBUG],
+                 tag);
+    if (n < 0)
+    {
+        return;
+    }
+    if ((size_t)n >= sizeof(buf))
+    {
+        n = (int)(sizeof(buf) - 1U);
+    }
+
+    m = vsnprintf(buf + n, sizeof(buf) - (size_t)n, fmt, ap);
+    if (m < 0)
+    {
+        return;
+    }
+
+    n += m;
+    if ((size_t)n > (sizeof(buf) - 3U))
+    {
+        n = (int)(sizeof(buf) - 3U);
+    }
+    buf[n++] = '\r';
+    buf[n++] = '\n';
+    bsp_log_write((const uint8_t *)buf, (uint32_t)n);
+}
+
+void bsp_log_printf_ex(const char *source, bsp_log_level_t level,
+                       const char *tag, const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    bsp_log_vprintf(source, level, tag, fmt, ap);
+    va_end(ap);
+}
+
+void bsp_log_printf(bsp_log_level_t level, const char *tag,
+                    const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    bsp_log_vprintf("BSP", level, tag, fmt, ap);
+    va_end(ap);
 }
 
 void bsp_log_poll(void)

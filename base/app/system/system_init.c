@@ -30,9 +30,13 @@
 static int create_system_tasks(void)
 {
     if (xTaskCreate(task_wdg, "wdg", STACK_WDG, 0, WDG_PRIO, &g_app_ipc.task_wdg) != pdPASS) return -1;
+    elog_info("sys", "wdg stack=%u words prio=%u", (unsigned)STACK_WDG, (unsigned)WDG_PRIO);
     if (xTaskCreate(task_shell, "shell", STACK_SHELL, 0, 4, &g_app_ipc.task_shell) != pdPASS) return -1;
+    elog_info("sys", "shell stack=%u words prio=4", (unsigned)STACK_SHELL);
     if (xTaskCreate(task_log, "log", STACK_LOG, 0, 3, &g_app_ipc.task_log) != pdPASS) return -1;
+    elog_info("sys", "log stack=%u words prio=3", (unsigned)STACK_LOG);
     if (xTaskCreate(task_usb, "usb", STACK_USB, 0, 3, &g_app_ipc.task_usb) != pdPASS) return -1;
+    elog_info("sys", "usb stack=%u words prio=3", (unsigned)STACK_USB);
     return 0;
 }
 

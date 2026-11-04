@@ -1,5 +1,6 @@
 #include "stm32f4xx_hal.h"
 #include "bsp_core.h"
+#include "bsp_log.h"
 
 #define BSP_PLLM 25U
 #define BSP_PLLN 336U
@@ -59,8 +60,15 @@ HAL_StatusTypeDef bsp_core_init(void)
     status = board_clock_init();
     if (status != HAL_OK)
     {
+        BSP_LOGE("core", "clock init failed code=%d", (int)status);
         return status;
     }
+
+    BSP_LOGI("core", "SYSCLK=%lu MHz HCLK=%lu MHz PCLK1=%lu MHz PCLK2=%lu MHz",
+             (unsigned long)(HAL_RCC_GetSysClockFreq() / 1000000U),
+             (unsigned long)(HAL_RCC_GetHCLKFreq() / 1000000U),
+             (unsigned long)(HAL_RCC_GetPCLK1Freq() / 1000000U),
+             (unsigned long)(HAL_RCC_GetPCLK2Freq() / 1000000U));
 
     /* HAL_RCC_ClockConfig already calls HAL_InitTick; call again explicitly so
      * the TIM6 timebase is configured against the final 168 MHz clock. */

@@ -11,7 +11,9 @@ typedef enum
     BSP_UART_NUM
 } bsp_uart_t;
 
-void bsp_uart_init(void);
+int bsp_uart_init(void);
+
+uint32_t bsp_uart_get_baud(bsp_uart_t id);
 
 uint32_t bsp_uart_write(bsp_uart_t id, const uint8_t *data, uint32_t len,
                         uint32_t timeout_ms);

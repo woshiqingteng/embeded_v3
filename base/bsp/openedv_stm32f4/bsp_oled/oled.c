@@ -15,6 +15,7 @@
 #include "oledfont.h"
 #include "bsp_core.h"
 #include "oled_ssd1306.h"
+#include "bsp_log.h"
 
 /* Panel geometry. */
 #define OLED_WIDTH_PX     128U
@@ -253,4 +254,5 @@ void oled_init(void)
 
     oled_ssd1306_init();
     oled_clear();
+    BSP_LOGI("oled", "SSD1306 128x64 ready");
 }

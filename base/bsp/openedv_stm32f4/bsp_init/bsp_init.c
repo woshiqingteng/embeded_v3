@@ -13,13 +13,18 @@
 
 int bsp_init_early(void)
 {
+    bsp_log_init();
+
     if (bsp_core_init() != HAL_OK)
     {
         return -1;
     }
 
-    bsp_log_init();
-    bsp_uart_init();
+    if (bsp_uart_init() != 0)
+    {
+        return -1;
+    }
+
     bsp_log_attach_uart();
     return 0;
 }

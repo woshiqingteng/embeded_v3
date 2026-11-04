@@ -41,17 +41,17 @@
 /**
  * @brief 是否在输出命令列表中列出用户
  */
-#define     SHELL_HELP_LIST_USER        0
+#define     SHELL_HELP_LIST_USER        1
 
 /**
  * @brief 是否在输出命令列表中列出变量
  */
-#define     SHELL_HELP_LIST_VAR         0
+#define     SHELL_HELP_LIST_VAR         1
 
 /**
  * @brief 是否在输出命令列表中列出按键
  */
-#define     SHELL_HELP_LIST_KEY         0
+#define     SHELL_HELP_LIST_KEY         1
 
 /**
  * @brief 是否在输出命令列表中展示命令权限

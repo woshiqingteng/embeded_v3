@@ -7,6 +7,7 @@
 #ifndef BSP_SDIO_H
 #define BSP_SDIO_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "stm32f4xx_hal.h"
@@ -47,6 +48,10 @@ typedef struct
  *  @return 0 on success, non-zero on failure. */
 uint8_t sdio_init(void);
 void sdio_set_io_hook(void (*hook)(void));
+
+/** Select blocking or DMA transfers at runtime. Returns 0 on success. */
+int  sdio_set_dma_mode(bool enable);
+bool sdio_get_dma_mode(void);
 
 /** @brief  Read the cached card information. */
 uint8_t get_sd_card_info(HAL_SD_CardInfoTypeDef *cardinfo);

@@ -5,6 +5,7 @@
 #include "task.h"
 #include "semphr.h"
 #include "bsp_uart.h"
+#include "bsp_log.h"
 #include "ringbuf.h"
 
 #define UART_TX_RING_SIZE 2048U
@@ -121,8 +122,10 @@ static void uart_tx_kick(uint8_t id)
     }
 }
 
-void bsp_uart_init(void)
+int bsp_uart_init(void)
 {
+    int ret = 0;
+
     for (uint8_t id = 0U; id < BSP_UART_NUM; id++)
     {
         const uart_hw_t *hw = &s_hw[id];
@@ -150,7 +153,10 @@ void bsp_uart_init(void)
         g_uart[id].Init.Mode         = UART_MODE_TX_RX;
         g_uart[id].Init.HwFlowCtl    = UART_HWCONTROL_NONE;
         g_uart[id].Init.OverSampling = UART_OVERSAMPLING_16;
-        (void)HAL_UART_Init(&g_uart[id]);
+        if (HAL_UART_Init(&g_uart[id]) != HAL_OK)
+        {
+            ret = -1;
+        }
 
         uart_dma_init(id);
 
@@ -158,7 +164,28 @@ void bsp_uart_init(void)
         HAL_NVIC_EnableIRQ(hw->irqn);
     }
 
-    (void)HAL_UART_Receive_IT(&g_uart[BSP_UART1], &g_rx_byte[BSP_UART1], 1U);
+    if (HAL_UART_Receive_IT(&g_uart[BSP_UART1], &g_rx_byte[BSP_UART1], 1U) != HAL_OK)
+    {
+        ret = -1;
+    }
+
+    if (ret == 0)
+    {
+        BSP_LOGI("uart", "USART1=%lu USART2=%lu",
+                 (unsigned long)bsp_uart_get_baud(BSP_UART1),
+                 (unsigned long)bsp_uart_get_baud(BSP_UART2));
+    }
+    else
+    {
+        BSP_LOGE("uart", "USART init failed");
+    }
+
+    return ret;
+}
+
+uint32_t bsp_uart_get_baud(bsp_uart_t id)
+{
+    return (id < BSP_UART_NUM) ? g_uart[id].Init.BaudRate : 0U;
 }
 
 uint32_t bsp_uart_write(bsp_uart_t id, const uint8_t *data, uint32_t len,

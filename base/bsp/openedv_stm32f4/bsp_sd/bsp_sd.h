@@ -28,6 +28,8 @@ int  bsp_sd_acquire(bsp_sd_owner_t owner, uint32_t timeout_ms);
 void bsp_sd_release(bsp_sd_owner_t owner);
 bsp_sd_owner_t bsp_sd_owner(void);
 bool bsp_sd_is_writable(void);
+int  bsp_sd_set_dma_enabled(bool enable);
+bool bsp_sd_dma_enabled(void);
 
 void bsp_sd_set_io_hook(bsp_sd_io_hook_t hook);
 

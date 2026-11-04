@@ -1,6 +1,7 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include "bsp_sd.h"
+#include "bsp_log.h"
 
 static SemaphoreHandle_t g_sd_mutex;
 static bsp_sd_owner_t    g_owner = BSP_SD_OWNER_NONE;
@@ -9,12 +10,34 @@ static uint8_t           g_ready;
 
 int bsp_sd_init(void)
 {
+    if (g_ready != 0U)
+    {
+        return 0;
+    }
+
     if (g_sd_mutex == 0)
     {
         g_sd_mutex = xSemaphoreCreateMutex();
     }
 
     g_ready = (sdio_init() == 0U) ? 1U : 0U;
+    if (g_ready != 0U)
+    {
+        sd_card_info_t info;
+
+        if (bsp_sd_get_info(&info) == 0)
+        {
+            BSP_LOGI("sd", "size=%lu MiB blocks=%lu block_size=%lu B readonly=%u",
+                     (unsigned long)info.total_size_mb,
+                     (unsigned long)info.block_count,
+                     (unsigned long)info.block_size,
+                     (unsigned)(bsp_sd_is_writable() ? 0U : 1U));
+        }
+    }
+    else
+    {
+        BSP_LOGE("sd", "init failed; storage read-only");
+    }
     return (g_ready != 0U) ? 0 : -1;
 }
 
@@ -90,6 +113,25 @@ void bsp_sd_set_io_hook(bsp_sd_io_hook_t hook)
 {
     g_io_hook = hook;
     sdio_set_io_hook(hook);
+}
+
+int bsp_sd_set_dma_enabled(bool enable)
+{
+    int ret;
+
+    if ((g_sd_mutex == 0) ||
+        (xSemaphoreTake(g_sd_mutex, pdMS_TO_TICKS(1000U)) != pdTRUE))
+    {
+        return -1;
+    }
+    ret = sdio_set_dma_mode(enable);
+    (void)xSemaphoreGive(g_sd_mutex);
+    return ret;
+}
+
+bool bsp_sd_dma_enabled(void)
+{
+    return sdio_get_dma_mode();
 }
 
 int bsp_sd_read(uint8_t *buf, uint32_t lba, uint32_t count)

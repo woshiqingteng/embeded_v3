@@ -1,5 +1,6 @@
 #include "stm32f4xx_hal.h"
 #include "bsp_pwm.h"
+#include "bsp_log.h"
 
 #define PWM_PERIOD_TICKS 1000U
 #define PWM_MAX_DUTY     1000U
@@ -49,6 +50,7 @@ void bsp_pwm_init(void)
 
     (void)HAL_TIM_PWM_Start(&g_htim8, TIM_CHANNEL_1);
     (void)HAL_TIM_PWM_Start(&g_htim8, TIM_CHANNEL_2);
+    BSP_LOGI("pwm", "TIM8 duty=%u/1000 permille", (unsigned)g_duty);
 }
 
 void bsp_pwm_set_duty(uint16_t permille)

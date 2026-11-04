@@ -1,5 +1,6 @@
 #include "stm32f4xx_hal.h"
 #include "bsp_key.h"
+#include "bsp_log.h"
 
 #define KEY0_PORT   GPIOH
 #define KEY0_PIN    GPIO_PIN_3
@@ -53,6 +54,7 @@ void bsp_key_init(void)
     gpio.Pull = GPIO_PULLDOWN;
     gpio.Pin  = WKUP_PIN;
     HAL_GPIO_Init(GPIOA, &gpio);
+    BSP_LOGI("key", "4 keys ready");
 }
 
 bsp_key_id_t bsp_key_scan_10ms(void)

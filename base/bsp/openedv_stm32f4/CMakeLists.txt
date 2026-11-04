@@ -1,3 +1,6 @@
+# BSP modules may emit init logs through the shared bsp_log formatter.
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/bsp_log)
+
 add_subdirectory(bsp_core)
 add_subdirectory(bsp_uart)
 add_subdirectory(bsp_log)
