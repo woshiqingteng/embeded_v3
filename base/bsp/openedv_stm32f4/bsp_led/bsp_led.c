@@ -24,7 +24,6 @@ void bsp_led_init(void)
     BSP_LOGI("led", "2 channels ready");
 }
 
-void bsp_led_on(bsp_led_t led)
 {
     if (led == BSP_LED0)
     {

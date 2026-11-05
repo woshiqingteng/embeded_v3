@@ -14,14 +14,12 @@ typedef enum
 } bsp_log_level_t;
 
 void bsp_log_init(void);
-void bsp_log_attach_uart(void);
+void bsp_log_attach_console(bsp_log_sink_t sink);
 void bsp_log_attach_sink(bsp_log_sink_t sink);
 
 void bsp_log_write(const uint8_t *data, uint32_t len);
 void bsp_log_printf(bsp_log_level_t level, const char *tag,
                     const char *fmt, ...);
-void bsp_log_printf_ex(const char *source, bsp_log_level_t level,
-                       const char *tag, const char *fmt, ...);
 void bsp_log_poll(void);
 uint32_t bsp_log_dropped(void);
 

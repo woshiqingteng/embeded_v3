@@ -104,25 +104,27 @@ static void adc_process_block(uint32_t offset)
     g_dirty = 1U;
 }
 
-void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
-{
-    if (hadc->Instance == ADC1)
-    {
-        adc_process_block(0U);
-    }
-}
-
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
-{
-    if (hadc->Instance == ADC1)
-    {
-        adc_process_block(ADC_BLOCK_SAMPLES);
-    }
-}
-
 void DMA2_Stream4_IRQHandler(void)
 {
-    HAL_DMA_IRQHandler(&g_hdma_adc);
+    if (__HAL_DMA_GET_FLAG(&g_hdma_adc, DMA_FLAG_HTIF0_4) != RESET)
+    {
+        __HAL_DMA_CLEAR_FLAG(&g_hdma_adc, DMA_FLAG_HTIF0_4);
+        adc_process_block(0U);
+    }
+    if (__HAL_DMA_GET_FLAG(&g_hdma_adc, DMA_FLAG_TCIF0_4) != RESET)
+    {
+        __HAL_DMA_CLEAR_FLAG(&g_hdma_adc, DMA_FLAG_TCIF0_4);
+        adc_process_block(ADC_BLOCK_SAMPLES);
+    }
+    if ((__HAL_DMA_GET_FLAG(&g_hdma_adc, DMA_FLAG_TEIF0_4) != RESET) ||
+        (__HAL_DMA_GET_FLAG(&g_hdma_adc, DMA_FLAG_DMEIF0_4) != RESET) ||
+        (__HAL_DMA_GET_FLAG(&g_hdma_adc, DMA_FLAG_FEIF0_4) != RESET))
+    {
+        __HAL_DMA_CLEAR_FLAG(&g_hdma_adc,
+                             DMA_FLAG_TEIF0_4 | DMA_FLAG_DMEIF0_4 | DMA_FLAG_FEIF0_4);
+        __HAL_DMA_DISABLE(&g_hdma_adc);
+        g_hdma_adc.Instance->CR &= ~DMA_SxCR_EN;
+    }
 }
 
 bool bsp_adc_get_mv(uint16_t mv[BSP_ADC_CHANNELS])

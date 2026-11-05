@@ -15,19 +15,15 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/board/${BOARD}.cmake)
 message(STATUS "Board : ${BOARD}")
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/func/flow.cmake)
 
-project(firmware LANGUAGES C ASM)
-
-add_compile_options(${MCU_ARCH_FLAGS})
-add_link_options(${MCU_ARCH_FLAGS})
-
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
 endif()
+
+project(firmware LANGUAGES C ASM)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-
-set(THIRD_PARTY         ${TP_ROOT})
 
 add_compile_definitions(
     ${MCU_MACRO}

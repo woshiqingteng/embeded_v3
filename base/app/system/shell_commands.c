@@ -16,30 +16,15 @@
 #include "bsp_key.h"
 #include "bsp_uart.h"
 #include "bsp_sd.h"
+#include "bsp_rtc.h"
 #include "bsp_log.h"
 #include "nor.h"
 #include "fault_info.h"
-#include "mw_fatfs.h"
-#include "mw_littlefs.h"
+#include <errno.h>
+#include "fs.h"
+#include "storage_manager.h"
 #include "elog.h"
-
-#if SHELL_USING_CMD_EXPORT != 1
-
-extern int shellSetVar(char *name, int value);
-extern void shellUp(Shell *shell);
-extern void shellDown(Shell *shell);
-extern void shellRight(Shell *shell);
-extern void shellLeft(Shell *shell);
-extern void shellTab(Shell *shell);
-extern void shellBackspace(Shell *shell);
-extern void shellDelete(Shell *shell);
-extern void shellEnter(Shell *shell);
-extern void shellHelp(int argc, char *argv[]);
-extern void shellUsers(void);
-extern void shellCmds(void);
-extern void shellVars(void);
-extern void shellKeys(void);
-extern void shellClear(void);
+#include "mw_log.h"
 
 static int cmd_stats(int argc, char *argv[]);
 static int cmd_led(int argc, char *argv[]);
@@ -54,80 +39,46 @@ static int cmd_nor(int argc, char *argv[]);
 static int cmd_pwm(int argc, char *argv[]);
 static int cmd_key(int argc, char *argv[]);
 static int cmd_sd(int argc, char *argv[]);
+static int cmd_fs(int argc, char *argv[]);
 static int cmd_lfs(int argc, char *argv[]);
 static int cmd_log(int argc, char *argv[]);
 static int cmd_usb(int argc, char *argv[]);
 static int cmd_wdg(int argc, char *argv[]);
 static int cmd_oled(int argc, char *argv[]);
+static int cmd_rtc(int argc, char *argv[]);
 
-SHELL_AGENCY_FUNC(shellRun, shellGetCurrent(), (const char *)p1);
+#define APP_CMD(_name, _func, _desc) \
+    SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | \
+                         SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN) | \
+                         SHELL_CMD_DISABLE_RETURN, \
+                     _name, _func, _desc)
 
-#define CMD(_name, _func, _desc) \
-    SHELL_CMD_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN)|SHELL_CMD_DISABLE_RETURN, \
-                   _name, _func, _desc)
+APP_CMD(stats, cmd_stats, show run stats);
+APP_CMD(uptime, cmd_uptime, show uptime);
+APP_CMD(heap, cmd_heap, show heap usage);
+APP_CMD(tasks, cmd_tasks, list tasks);
+APP_CMD(clock, cmd_clock, show clocks);
+APP_CMD(fault, cmd_fault, show last fault);
+APP_CMD(led, cmd_led, led on/off/toggle/status);
+APP_CMD(adc, cmd_adc, show adc mv);
+APP_CMD(uart, cmd_uart, uart status);
+APP_CMD(pwm, cmd_pwm, set/get pwm permille);
+APP_CMD(key, cmd_key, key status/inject);
+APP_CMD(nor, cmd_nor, nor id/info/read);
+APP_CMD(fs, cmd_fs, unified fs mount/umount/ls/cat/stat/df/mkdir/rm/mv);
+APP_CMD(sd, cmd_sd, fatfs mount/umount/ls/info/cat/dma);
+APP_CMD(lfs, cmd_lfs, littlefs mount/umount/ls/info/df/cat);
+APP_CMD(log, cmd_log, log test/fill/level/tag/flush/status);
+APP_CMD(usb, cmd_usb, usb status/readonly);
+APP_CMD(wdg, cmd_wdg, watchdog status);
+APP_CMD(rtc, cmd_rtc, rtc show/set);
+APP_CMD(oled, cmd_oled, oled on/off/clear/text/status);
 
-const ShellCommand shellCommandList[] =
-{
-    {.attr.value=SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_USER),
-     .data.user.name = SHELL_DEFAULT_USER,
-     .data.user.password = SHELL_DEFAULT_USER_PASSWORD,
-     .data.user.desc = "default user"},
-
-    SHELL_CMD_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_FUNC),
-                   setVar, shellSetVar, set var),
-    SHELL_KEY_ITEM(SHELL_CMD_PERMISSION(0), 0x1B5B4100, shellUp, up),
-    SHELL_KEY_ITEM(SHELL_CMD_PERMISSION(0), 0x1B5B4200, shellDown, down),
-    SHELL_KEY_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_ENABLE_UNCHECKED,
-                   0x1B5B4300, shellRight, right),
-    SHELL_KEY_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_ENABLE_UNCHECKED,
-                   0x1B5B4400, shellLeft, left),
-    SHELL_KEY_ITEM(SHELL_CMD_PERMISSION(0), 0x09000000, shellTab, tab),
-    SHELL_KEY_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_ENABLE_UNCHECKED,
-                   0x08000000, shellBackspace, backspace),
-    SHELL_KEY_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_ENABLE_UNCHECKED,
-                   0x7F000000, shellDelete, delete),
-    SHELL_KEY_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_ENABLE_UNCHECKED,
-                   0x0A000000, shellEnter, enter),
-    SHELL_KEY_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_ENABLE_UNCHECKED,
-                   0x0D000000, shellEnter, enter),
-
-    SHELL_CMD_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN)|SHELL_CMD_DISABLE_RETURN,
-                   help, shellHelp, show command info),
-    SHELL_CMD_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_FUNC)|SHELL_CMD_DISABLE_RETURN,
-                   users, shellUsers, list all user),
-    SHELL_CMD_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_FUNC)|SHELL_CMD_DISABLE_RETURN,
-                   cmds, shellCmds, list all cmd),
-    SHELL_CMD_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_FUNC)|SHELL_CMD_DISABLE_RETURN,
-                   vars, shellVars, list all var),
-    SHELL_CMD_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_FUNC)|SHELL_CMD_DISABLE_RETURN,
-                   keys, shellKeys, list all key),
-    SHELL_CMD_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_FUNC)|SHELL_CMD_DISABLE_RETURN,
-                   clear, shellClear, clear console),
-    SHELL_CMD_ITEM(SHELL_CMD_PERMISSION(0)|SHELL_CMD_TYPE(SHELL_TYPE_CMD_FUNC)|SHELL_CMD_DISABLE_RETURN,
-                   sh, SHELL_AGENCY_FUNC_NAME(shellRun), run command directly),
-
-    CMD(stats, cmd_stats, show run stats),
-    CMD(uptime, cmd_uptime, show uptime),
-    CMD(heap, cmd_heap, show heap usage),
-    CMD(tasks, cmd_tasks, list tasks),
-    CMD(clock, cmd_clock, show clocks),
-    CMD(fault, cmd_fault, show last fault),
-    CMD(led, cmd_led, led on/off/toggle/status),
-    CMD(adc, cmd_adc, show adc mv),
-    CMD(uart, cmd_uart, uart status),
-    CMD(pwm, cmd_pwm, set/get pwm permille),
-    CMD(key, cmd_key, key status/inject),
-    CMD(nor, cmd_nor, nor id/info/read),
-    CMD(sd, cmd_sd, fatfs mount/umount/ls/info/cat/dma),
-    CMD(lfs, cmd_lfs, littlefs mount/umount/ls/info/df/cat),
-    CMD(log, cmd_log, log test/level/tag/flush/status),
-    CMD(usb, cmd_usb, usb status/readonly),
-    CMD(wdg, cmd_wdg, watchdog status),
-    CMD(oled, cmd_oled, oled on/off/clear/text/status),
-};
-
-const unsigned short shellCommandCount =
-    sizeof(shellCommandList) / sizeof(ShellCommand);
+SHELL_EXPORT_CMD_AGENCY(
+    SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN) |
+        SHELL_CMD_DISABLE_RETURN,
+    sh, shellRun, run command directly,
+    shellGetCurrent(), (const char *)p1);
 
 static const char s_nl[] = { (char)13, (char)10, '\0' };
 
@@ -347,11 +298,15 @@ static int cmd_fault(int argc, char *argv[])
         return 0;
     }
 
-    shellPrint(sh, "cfsr=%08lx hfsr=%08lx pc=%08lx lr=%08lx",
+    shellPrint(sh, "type=%lu cfsr=%08lx hfsr=%08lx pc=%08lx lr=%08lx file=%s:%lu task=%s",
+               (unsigned long)g_fault_info.type,
                (unsigned long)g_fault_info.cfsr,
                (unsigned long)g_fault_info.hfsr,
                (unsigned long)g_fault_info.pc,
-               (unsigned long)g_fault_info.lr);
+               (unsigned long)g_fault_info.lr,
+               g_fault_info.file,
+               (unsigned long)g_fault_info.line,
+               g_fault_info.task);
     (void)shellWriteString(sh, s_nl);
     return 0;
 }
@@ -411,7 +366,12 @@ static int cmd_nor(int argc, char *argv[])
         len = NOR_DEVICE_SIZE_BYTE - addr;
     }
 
-    nor_read(buf, addr, (uint16_t)len);
+    if (nor_read(buf, addr, (uint16_t)len) != 0)
+    {
+        shellPrint(sh, "nor read failed/timeout");
+        (void)shellWriteString(sh, s_nl);
+        return 0;
+    }
     for (uint32_t i = 0U; i < len; i++)
     {
         if ((i % 16U) == 0U)
@@ -427,14 +387,257 @@ static int cmd_nor(int argc, char *argv[])
     return 0;
 }
 
-static int cmd_sd(int argc, char *argv[])
+static void shell_newline(Shell *sh)
+{
+    (void)shellWriteString(sh, s_nl);
+}
+
+static void fs_join(const char *mount, const char *path, char *out, size_t size)
+{
+    if ((path == 0) || (path[0] == '\0'))
+    {
+        (void)snprintf(out, size, "%s/", mount);
+    }
+    else if (path[0] == '/')
+    {
+        (void)snprintf(out, size, "%s%s", mount, path);
+    }
+    else
+    {
+        (void)snprintf(out, size, "%s/%s", mount, path);
+    }
+}
+
+static int fs_do_ls(Shell *sh, const char *path)
+{
+    fs_dir_t    dir;
+    fs_dirent_t entry;
+    int         ret;
+
+    ret = fs_opendir(&dir, path);
+    if (ret != 0)
+    {
+        shellPrint(sh, "fs open dir failed: %d", ret);
+        shell_newline(sh);
+        return ret;
+    }
+    for (;;)
+    {
+        ret = fs_readdir(&dir, &entry);
+        if (ret != 0)
+        {
+            break;
+        }
+        shellPrint(sh, "%c %8lu %s",
+                   (entry.type == FS_DIR_ENTRY_DIR) ? 'd' : '-',
+                   (unsigned long)entry.size,
+                   entry.name);
+        shell_newline(sh);
+    }
+    (void)fs_closedir(&dir);
+    return (ret == 1) ? 0 : ret;
+}
+
+static int fs_do_cat(Shell *sh, const char *path)
+{
+    fs_file_t fp;
+    char      buf[129];
+    ssize_t   n;
+    int       ret;
+
+    ret = fs_open(&fp, path, FS_O_READ);
+    if (ret != 0)
+    {
+        shellPrint(sh, "fs open failed: %d", ret);
+        shell_newline(sh);
+        return ret;
+    }
+    while ((n = fs_read(&fp, buf, sizeof(buf) - 1U)) > 0)
+    {
+        buf[n] = '\0';
+        (void)shellWriteString(sh, buf);
+    }
+    (void)fs_close(&fp);
+    if (n < 0)
+    {
+        shellPrint(sh, "fs read failed: %d", (int)n);
+        shell_newline(sh);
+        return (int)n;
+    }
+    return 0;
+}
+
+static int fs_do_stat(Shell *sh, const char *path)
+{
+    fs_dirent_t entry;
+    int         ret = fs_stat(path, &entry);
+
+    if (ret != 0)
+    {
+        shellPrint(sh, "fs stat failed: %d", ret);
+        shell_newline(sh);
+        return ret;
+    }
+    shellPrint(sh, "%c %8lu %s",
+               (entry.type == FS_DIR_ENTRY_DIR) ? 'd' : '-',
+               (unsigned long)entry.size,
+               entry.name);
+    shell_newline(sh);
+    return 0;
+}
+
+static int fs_do_df(Shell *sh, const char *path)
+{
+    fs_statvfs_t st;
+    int          ret = fs_statvfs(path, &st);
+
+    if (ret != 0)
+    {
+        shellPrint(sh, "fs df failed: %d", ret);
+        shell_newline(sh);
+        return ret;
+    }
+    shellPrint(sh, "block=%lu total=%lu free=%lu bytes=%lu free_bytes=%lu",
+               st.block_size, st.total_blocks, st.free_blocks,
+               st.total_bytes, st.free_bytes);
+    shell_newline(sh);
+    return 0;
+}
+
+static int cmd_fs(int argc, char *argv[])
 {
     Shell *sh = shellGetCurrent();
+    const char *op;
+    const char *path;
+    int ret = 0;
 
     if (argc < 2)
     {
-        shellPrint(sh, "sd mount|umount|ls|info|cat <file>|dma on/off/status");
-        (void)shellWriteString(sh, s_nl);
+        shellPrint(sh, "fs mount|umount|state|ls|cat|stat|df|mkdir|rm|mv <path> [path]");
+        shell_newline(sh);
+        return 0;
+    }
+    op = argv[1];
+
+    if (strcmp(op, "state") == 0)
+    {
+        shellPrint(sh, "storage=%s sd=%u flash=%u nor=%u",
+                   storage_state_name(),
+                   fs_is_mounted(FS_MOUNT_SD) ? 1U : 0U,
+                   fs_is_mounted(FS_MOUNT_FLASH) ? 1U : 0U,
+                   fs_is_mounted(FS_MOUNT_NOR) ? 1U : 0U);
+        shell_newline(sh);
+        return 0;
+    }
+
+    if (strcmp(op, "mount") == 0)
+    {
+        path = (argc > 2) ? argv[2] : FS_MOUNT_SD;
+        if (strcmp(path, FS_MOUNT_SD) == 0)
+        {
+            ret = storage_fatfs_mount();
+        }
+        else if (strcmp(path, FS_MOUNT_FLASH) == 0)
+        {
+            ret = fs_is_mounted(FS_MOUNT_FLASH) ? 0 : fs_mount(fs_logfs_mount_obj());
+        }
+        else if (strcmp(path, FS_MOUNT_NOR) == 0)
+        {
+            ret = fs_is_mounted(FS_MOUNT_NOR) ? 0 : fs_mount(fs_littlefs_mount_obj());
+        }
+        else
+        {
+            ret = -EINVAL;
+        }
+        shellPrint(sh, "fs mount %s ret=%d", path, ret);
+        shell_newline(sh);
+        return ret;
+    }
+
+    if (strcmp(op, "umount") == 0)
+    {
+        path = (argc > 2) ? argv[2] : FS_MOUNT_SD;
+        if (strcmp(path, FS_MOUNT_SD) == 0)
+        {
+            ret = storage_fatfs_umount();
+        }
+        else if (strcmp(path, FS_MOUNT_FLASH) == 0)
+        {
+            ret = fs_unmount(fs_logfs_mount_obj());
+        }
+        else if (strcmp(path, FS_MOUNT_NOR) == 0)
+        {
+            ret = fs_unmount(fs_littlefs_mount_obj());
+        }
+        else
+        {
+            ret = -EINVAL;
+        }
+        shellPrint(sh, "fs umount %s ret=%d", path, ret);
+        shell_newline(sh);
+        return ret;
+    }
+
+    path = (argc > 2) ? argv[2] : FS_MOUNT_FLASH;
+
+    if (strcmp(op, "ls") == 0)
+    {
+        (void)fs_do_ls(sh, path);
+    }
+    else if (strcmp(op, "cat") == 0)
+    {
+        (void)fs_do_cat(sh, path);
+    }
+    else if (strcmp(op, "stat") == 0)
+    {
+        (void)fs_do_stat(sh, path);
+    }
+    else if (strcmp(op, "df") == 0)
+    {
+        (void)fs_do_df(sh, path);
+    }
+    else if (strcmp(op, "mkdir") == 0)
+    {
+        ret = fs_mkdir(path);
+        shellPrint(sh, "fs mkdir ret=%d", ret);
+        shell_newline(sh);
+    }
+    else if (strcmp(op, "rm") == 0)
+    {
+        ret = fs_unlink(path);
+        shellPrint(sh, "fs rm ret=%d", ret);
+        shell_newline(sh);
+    }
+    else if (strcmp(op, "mv") == 0)
+    {
+        if (argc > 3)
+        {
+            ret = fs_rename(path, argv[3]);
+        }
+        else
+        {
+            ret = -EINVAL;
+        }
+        shellPrint(sh, "fs mv ret=%d", ret);
+        shell_newline(sh);
+    }
+    else
+    {
+        shellPrint(sh, "fs: unknown op");
+        shell_newline(sh);
+    }
+    return ret;
+}
+
+static int cmd_sd(int argc, char *argv[])
+{
+    Shell *sh = shellGetCurrent();
+    char path[160];
+
+    if (argc < 2)
+    {
+        shellPrint(sh, "sd mount|umount|ls|info|cat|test|stats|dma on/off/status");
+        shell_newline(sh);
         return 0;
     }
 
@@ -444,14 +647,7 @@ static int cmd_sd(int argc, char *argv[])
 
         if (strcmp(op, "on") == 0)
         {
-            if (bsp_sd_set_dma_enabled(true) == 0)
-            {
-                shellPrint(sh, "sd dma on");
-            }
-            else
-            {
-                shellPrint(sh, "sd dma failed; blocking mode kept");
-            }
+            shellPrint(sh, "sd dma %s", (bsp_sd_set_dma_enabled(true) == 0) ? "on" : "failed; blocking mode kept");
         }
         else if (strcmp(op, "off") == 0)
         {
@@ -462,7 +658,7 @@ static int cmd_sd(int argc, char *argv[])
         {
             shellPrint(sh, "sd dma=%s", bsp_sd_dma_enabled() ? "on" : "off");
         }
-        (void)shellWriteString(sh, s_nl);
+        shell_newline(sh);
         return 0;
     }
 
@@ -476,97 +672,93 @@ static int cmd_sd(int argc, char *argv[])
         }
         else
         {
-            shellPrint(sh, "sd size=%lu MiB blocks=%lu block_size=%lu B readonly=%u owner=%u dma=%u",
+            shellPrint(sh, "sd size=%lu MiB blocks=%lu block_size=%lu B readonly=%u owner=%u dma=%u state=%s",
                        (unsigned long)info.total_size_mb,
                        (unsigned long)info.block_count,
                        (unsigned long)info.block_size,
                        bsp_sd_is_writable() ? 0U : 1U,
                        (unsigned)bsp_sd_owner(),
-                       bsp_sd_dma_enabled() ? 1U : 0U);
+                       bsp_sd_dma_enabled() ? 1U : 0U,
+                       storage_state_name());
         }
-        (void)shellWriteString(sh, s_nl);
+        shell_newline(sh);
         return 0;
     }
 
-    if (strcmp(argv[1], "cat") == 0)
+    if (strcmp(argv[1], "stats") == 0)
     {
-        FIL file;
-        UINT br;
-        char buf[129];
+        bsp_sd_diag_t d;
 
-        if (argc < 3)
+        bsp_sd_get_diag(&d);
+        shellPrint(sh, "dma selftest=%lu sdio_irq=%lu dma_irq=%lu error=0x%08lx start=%lu",
+                   (unsigned long)d.selftest,
+                   (unsigned long)d.sdio_irq,
+                   (unsigned long)d.dma_irq,
+                   (unsigned long)d.error,
+                   (unsigned long)d.start_status);
+        shell_newline(sh);
+        return 0;
+    }
+
+    if (strcmp(argv[1], "test") == 0)
+    {
+        static uint8_t blk[4096];
+        uint32_t lba = (argc > 2) ? (uint32_t)atoi(argv[2]) : 0U;
+        uint32_t count = (argc > 3) ? (uint32_t)atoi(argv[3]) : 1U;
+        uint32_t last = (count > 1U) ? count - 1U : 0U;
+        int ret;
+
+        if (count == 0U)
         {
-            shellPrint(sh, "sd cat <file>");
-            (void)shellWriteString(sh, s_nl);
-            return 0;
+            count = 1U;
         }
-        if (mw_fatfs_mount() != 0)
+        if (count > 8U)
         {
-            shellPrint(sh, "sd not mounted");
-            (void)shellWriteString(sh, s_nl);
-            return 0;
+            count = 8U;
+            last = 7U;
         }
-        if (mw_fatfs_lock(1000U) != 0)
+        ret = bsp_sd_read(blk, lba, count);
+        if (ret == 0)
         {
-            shellPrint(sh, "sd busy");
-            (void)shellWriteString(sh, s_nl);
-            return 0;
-        }
-        if (f_open(&file, argv[2], FA_READ) == FR_OK)
-        {
-            while ((f_read(&file, buf, sizeof(buf) - 1U, &br) == FR_OK) && (br > 0U))
-            {
-                buf[br] = '\0';
-                (void)shellWriteString(sh, buf);
-            }
-            (void)f_close(&file);
+            shellPrint(sh, "sd read lba=%lu cnt=%lu %02x %02x %02x %02x sig=%02x%02x",
+                       (unsigned long)lba, (unsigned long)count,
+                       blk[0], blk[1], blk[2], blk[3],
+                       blk[last * 512U + 510U], blk[last * 512U + 511U]);
         }
         else
         {
-            shellPrint(sh, "sd open failed");
-            (void)shellWriteString(sh, s_nl);
+            shellPrint(sh, "sd read lba=%lu cnt=%lu failed ret=%d",
+                       (unsigned long)lba, (unsigned long)count, ret);
         }
-        mw_fatfs_unlock();
+        shell_newline(sh);
         return 0;
     }
 
     if (strcmp(argv[1], "mount") == 0)
     {
-        shellPrint(sh, "sd mount %s", (mw_fatfs_mount() == 0) ? "ok" : "fail");
-        (void)shellWriteString(sh, s_nl);
+        shellPrint(sh, "sd mount ret=%d", storage_fatfs_mount());
+        shell_newline(sh);
     }
     else if (strcmp(argv[1], "umount") == 0)
     {
-        shellPrint(sh, "sd umount %s", (mw_fatfs_umount() == 0) ? "ok" : "fail");
-        (void)shellWriteString(sh, s_nl);
+        shellPrint(sh, "sd umount ret=%d", storage_fatfs_umount());
+        shell_newline(sh);
+    }
+    else if (strcmp(argv[1], "cat") == 0)
+    {
+        if (argc < 3)
+        {
+            shellPrint(sh, "sd cat <file>");
+            shell_newline(sh);
+            return 0;
+        }
+        fs_join(FS_MOUNT_SD, argv[2], path, sizeof(path));
+        (void)fs_do_cat(sh, path);
     }
     else if (strcmp(argv[1], "ls") == 0)
     {
-        DIR dir;
-        FILINFO fno;
-
-        if (mw_fatfs_mount() != 0)
-        {
-            shellPrint(sh, "sd not mounted");
-            (void)shellWriteString(sh, s_nl);
-            return 0;
-        }
-        if (mw_fatfs_lock(1000U) != 0)
-        {
-            shellPrint(sh, "sd busy");
-            (void)shellWriteString(sh, s_nl);
-            return 0;
-        }
-        if (f_opendir(&dir, "") == FR_OK)
-        {
-            while ((f_readdir(&dir, &fno) == FR_OK) && (fno.fname[0] != 0))
-            {
-                (void)shellWriteString(sh, fno.fname);
-                (void)shellWriteString(sh, s_nl);
-            }
-            (void)f_closedir(&dir);
-        }
-        mw_fatfs_unlock();
+        fs_join(FS_MOUNT_SD, (argc > 2) ? argv[2] : "/", path, sizeof(path));
+        (void)fs_do_ls(sh, path);
     }
     return 0;
 }
@@ -574,121 +766,82 @@ static int cmd_sd(int argc, char *argv[])
 static int cmd_lfs(int argc, char *argv[])
 {
     Shell *sh = shellGetCurrent();
+    char path[160];
 
     if (argc < 2)
     {
         shellPrint(sh, "lfs mount|umount|ls|info|df|cat <file>");
-        (void)shellWriteString(sh, s_nl);
+        shell_newline(sh);
         return 0;
     }
 
     if (strcmp(argv[1], "mount") == 0)
     {
-        shellPrint(sh, "lfs mount %s", (mw_littlefs_mount() == 0) ? "ok" : "fail");
-        (void)shellWriteString(sh, s_nl);
+        shellPrint(sh, "lfs mount ret=%d",
+                   fs_is_mounted(FS_MOUNT_NOR) ? 0 : fs_mount(fs_littlefs_mount_obj()));
+        shell_newline(sh);
     }
     else if (strcmp(argv[1], "umount") == 0)
     {
-        shellPrint(sh, "lfs umount %s", (mw_littlefs_umount() == 0) ? "ok" : "fail");
-        (void)shellWriteString(sh, s_nl);
+        shellPrint(sh, "lfs umount ret=%d", fs_unmount(fs_littlefs_mount_obj()));
+        shell_newline(sh);
     }
     else if ((strcmp(argv[1], "info") == 0) || (strcmp(argv[1], "df") == 0))
     {
-        lfs_t *lfs;
-        lfs_ssize_t used;
-
-        if (mw_littlefs_mount() != 0)
-        {
-            shellPrint(sh, "lfs not mounted");
-            (void)shellWriteString(sh, s_nl);
-            return 0;
-        }
-        if (mw_littlefs_lock(1000U) != 0)
-        {
-            shellPrint(sh, "lfs busy");
-            (void)shellWriteString(sh, s_nl);
-            return 0;
-        }
-        lfs = mw_littlefs_handle();
-        used = lfs_fs_size(lfs);
-        shellPrint(sh, "lfs mounted=1 used_blocks=%ld total_blocks=%lu",
-                   (long)used,
-                   (unsigned long)lfs->cfg->block_count);
-        (void)shellWriteString(sh, s_nl);
-        mw_littlefs_unlock();
+        (void)fs_do_df(sh, FS_MOUNT_NOR);
     }
     else if (strcmp(argv[1], "cat") == 0)
     {
-        lfs_t *lfs;
-        lfs_file_t file;
-        char buf[129];
-
         if (argc < 3)
         {
             shellPrint(sh, "lfs cat <file>");
-            (void)shellWriteString(sh, s_nl);
+            shell_newline(sh);
             return 0;
         }
-        if (mw_littlefs_mount() != 0)
-        {
-            shellPrint(sh, "lfs not mounted");
-            (void)shellWriteString(sh, s_nl);
-            return 0;
-        }
-        if (mw_littlefs_lock(1000U) != 0)
-        {
-            shellPrint(sh, "lfs busy");
-            (void)shellWriteString(sh, s_nl);
-            return 0;
-        }
-        lfs = mw_littlefs_handle();
-        if (lfs_file_open(lfs, &file, argv[2], LFS_O_RDONLY) == LFS_ERR_OK)
-        {
-            lfs_ssize_t n;
-            while ((n = lfs_file_read(lfs, &file, buf, sizeof(buf) - 1U)) > 0)
-            {
-                buf[n] = 0;
-                (void)shellWriteString(sh, buf);
-            }
-            (void)lfs_file_close(lfs, &file);
-        }
-        else
-        {
-            shellPrint(sh, "lfs open failed");
-            (void)shellWriteString(sh, s_nl);
-        }
-        mw_littlefs_unlock();
+        fs_join(FS_MOUNT_NOR, argv[2], path, sizeof(path));
+        (void)fs_do_cat(sh, path);
     }
     else if (strcmp(argv[1], "ls") == 0)
     {
-        lfs_t *lfs;
-        lfs_dir_t dir;
-        struct lfs_info info;
-
-        if (mw_littlefs_mount() != 0)
-        {
-            shellPrint(sh, "lfs not mounted");
-            (void)shellWriteString(sh, s_nl);
-            return 0;
-        }
-        if (mw_littlefs_lock(1000U) != 0)
-        {
-            shellPrint(sh, "lfs busy");
-            (void)shellWriteString(sh, s_nl);
-            return 0;
-        }
-        lfs = mw_littlefs_handle();
-        if (lfs_dir_open(lfs, &dir, "/") == LFS_ERR_OK)
-        {
-            while (lfs_dir_read(lfs, &dir, &info) > 0)
-            {
-                (void)shellWriteString(sh, info.name);
-                (void)shellWriteString(sh, s_nl);
-            }
-            (void)lfs_dir_close(lfs, &dir);
-        }
-        mw_littlefs_unlock();
+        fs_join(FS_MOUNT_NOR, (argc > 2) ? argv[2] : "/", path, sizeof(path));
+        (void)fs_do_ls(sh, path);
     }
+    return 0;
+}
+
+static int cmd_rtc(int argc, char *argv[])
+{
+    Shell *sh = shellGetCurrent();
+    bsp_rtc_datetime_t dt;
+    char buf[24];
+
+    if ((argc >= 2) && (strcmp(argv[1], "set") == 0))
+    {
+        unsigned y, mo, d, h, mi, s;
+
+        if ((argc < 4) ||
+            (sscanf(argv[2], "%u-%u-%u", &y, &mo, &d) != 3) ||
+            (sscanf(argv[3], "%u:%u:%u", &h, &mi, &s) != 3))
+        {
+            shellPrint(sh, "rtc set YYYY-MM-DD HH:MM:SS");
+            shell_newline(sh);
+            return 0;
+        }
+        dt.year = (uint16_t)y;
+        dt.month = (uint8_t)mo;
+        dt.date = (uint8_t)d;
+        dt.hour = (uint8_t)h;
+        dt.minute = (uint8_t)mi;
+        dt.second = (uint8_t)s;
+        dt.weekday = 0U;
+        shellPrint(sh, "rtc set ret=%d", bsp_rtc_set_datetime(&dt));
+        shell_newline(sh);
+        return 0;
+    }
+
+    bsp_rtc_format(buf, sizeof(buf));
+    shellPrint(sh, "%s", buf);
+    shell_newline(sh);
     return 0;
 }
 
@@ -699,6 +852,15 @@ static int cmd_log(int argc, char *argv[])
     if ((argc < 2) || (strcmp(argv[1], "test") == 0))
     {
         elog_info("shell", "log test tick=%lu", (unsigned long)HAL_GetTick());
+        return 0;
+    }
+
+    if (strcmp(argv[1], "fill") == 0)
+    {
+        uint32_t kb = (argc > 2) ? (uint32_t)atoi(argv[2]) : 300U;
+
+        shellPrint(sh, "log fill ret=%d", mw_log_fill(kb * 1024U));
+        shell_newline(sh);
         return 0;
     }
 
@@ -756,9 +918,10 @@ static int cmd_usb(int argc, char *argv[])
     (void)argc;
     (void)argv;
     app_state_get(&st);
-    shellPrint(sh, "usb configured=%u msc_readonly=%u",
+    shellPrint(sh, "usb configured=%u msc_readonly=%u storage=%s",
                st.usb_connected ? 1U : 0U,
-               bsp_sd_is_writable() ? 0U : 1U);
+               bsp_sd_is_writable() ? 0U : 1U,
+               storage_state_name());
     (void)shellWriteString(sh, s_nl);
     return 0;
 }
@@ -836,4 +999,3 @@ static int cmd_oled(int argc, char *argv[])
 }
 
 
-#endif

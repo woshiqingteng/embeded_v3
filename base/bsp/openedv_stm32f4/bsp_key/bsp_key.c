@@ -2,6 +2,10 @@
 #include "bsp_key.h"
 #include "bsp_log.h"
 
+#define BSP_KEY_SCAN_MS    10U
+#define KEY_DEBOUNCE_MS    20U
+#define KEY_DEBOUNCE_CNT   (KEY_DEBOUNCE_MS / BSP_KEY_SCAN_MS)
+
 #define KEY0_PORT   GPIOH
 #define KEY0_PIN    GPIO_PIN_3
 #define KEY1_PORT   GPIOH
@@ -26,13 +30,13 @@ static const key_hw_t s_keys[BSP_KEY_NUM] =
     { WKUP_PORT, WKUP_PIN, GPIO_PIN_SET },
 };
 
-static uint8_t s_stable[BSP_KEY_NUM];
-static uint8_t s_candidate[BSP_KEY_NUM];
-static uint8_t s_count[BSP_KEY_NUM];
+static key_fsm_t s_fsm[BSP_KEY_NUM];
 
-static uint8_t key_raw(bsp_key_id_t key)
+static uint8_t key_level(bsp_key_id_t key)
 {
-    return (HAL_GPIO_ReadPin(s_keys[key].port, s_keys[key].pin) == s_keys[key].active) ? 1U : 0U;
+    return (HAL_GPIO_ReadPin(s_keys[key].port, s_keys[key].pin) == s_keys[key].active)
+               ? KEY_LEVEL_PRESSED
+               : KEY_LEVEL_RELEASED;
 }
 
 void bsp_key_init(void)
@@ -54,40 +58,38 @@ void bsp_key_init(void)
     gpio.Pull = GPIO_PULLDOWN;
     gpio.Pin  = WKUP_PIN;
     HAL_GPIO_Init(GPIOA, &gpio);
-    BSP_LOGI("key", "4 keys ready");
-}
 
-bsp_key_id_t bsp_key_scan_10ms(void)
-{
     for (uint8_t i = 0U; i < BSP_KEY_NUM; i++)
     {
-        uint8_t raw = key_raw((bsp_key_id_t)i);
+        key_fsm_init(&s_fsm[i]);
+    }
 
-        if (raw == s_candidate[i])
-        {
-            if (s_count[i] < 3U)
-            {
-                s_count[i]++;
-            }
-        }
-        else
-        {
-            s_candidate[i] = raw;
-            s_count[i] = 0U;
-        }
+    BSP_LOGI("key", "4 keys ready, debounce=%u ms", KEY_DEBOUNCE_MS);
+}
 
-        if ((s_count[i] >= 2U) && (s_stable[i] != s_candidate[i]))
+uint8_t bsp_key_scan_10ms(bsp_key_event_t *events, uint8_t max_events)
+{
+    uint8_t count = 0U;
+
+    if ((events == 0) || (max_events == 0U))
+    {
+        return 0U;
+    }
+
+    for (uint8_t i = 0U; i < BSP_KEY_NUM; i++)
+    {
+        key_action_t action = key_fsm_scan(&s_fsm[i], key_level((bsp_key_id_t)i),
+                                           KEY_DEBOUNCE_CNT);
+
+        if ((action != KEY_ACT_NONE) && (count < max_events))
         {
-            s_stable[i] = s_candidate[i];
-            s_count[i] = 0U;
-            if (s_stable[i] != 0U)
-            {
-                return (bsp_key_id_t)i;
-            }
+            events[count].id = (bsp_key_id_t)i;
+            events[count].action = action;
+            count++;
         }
     }
 
-    return BSP_KEY_NONE;
+    return count;
 }
 
 bool bsp_key_is_pressed(bsp_key_id_t key)
@@ -96,5 +98,5 @@ bool bsp_key_is_pressed(bsp_key_id_t key)
     {
         return false;
     }
-    return key_raw(key) != 0U;
+    return (key_level(key) == KEY_LEVEL_PRESSED);
 }

@@ -8,9 +8,10 @@
 #include "fault_info.h"
 
 #include "elog.h"
-#include "mw_littlefs.h"
+#include "fs.h"
 #include "mw_log.h"
 #include "mw_shell.h"
+#include "storage_manager.h"
 
 #include "bsp_init.h"
 
@@ -49,13 +50,24 @@ static void task_system(void *arg)
         elog_error("boot", "bsp init failed");
     }
 
-    if (mw_littlefs_init() == 0 && mw_littlefs_mount() == 0)
+    (void)fs_init();
+    (void)storage_init();
+
+    if (fs_mount(fs_logfs_mount_obj()) == 0)
     {
-        (void)mw_log_init();
+        if (mw_log_init() != 0)
+        {
+            elog_warn("boot", "internal flash log disabled");
+        }
     }
     else
     {
-        elog_warn("boot", "littlefs not mounted; file log disabled");
+        elog_warn("boot", "internal flash log mount failed");
+    }
+
+    if (fs_mount(fs_littlefs_mount_obj()) != 0)
+    {
+        elog_warn("boot", "NOR littlefs mount failed");
     }
 
     (void)mw_shell_init();
@@ -74,6 +86,8 @@ static void task_system(void *arg)
 
 int system_init(void)
 {
+    fault_init();
+
     if (bsp_init_early() != 0)
     {
         return -1;
@@ -84,11 +98,15 @@ int system_init(void)
 
     if (g_fault_info.magic == APP_FAULT_MAGIC)
     {
-        elog_error("fault", "cfsr=%08lx hfsr=%08lx pc=%08lx lr=%08lx",
+        elog_error("fault", "type=%lu cfsr=%08lx hfsr=%08lx pc=%08lx lr=%08lx file=%s:%lu task=%s",
+                   (unsigned long)g_fault_info.type,
                    (unsigned long)g_fault_info.cfsr,
                    (unsigned long)g_fault_info.hfsr,
                    (unsigned long)g_fault_info.pc,
-                   (unsigned long)g_fault_info.lr);
+                   (unsigned long)g_fault_info.lr,
+                   g_fault_info.file,
+                   (unsigned long)g_fault_info.line,
+                   g_fault_info.task);
         g_fault_info.magic = 0U;
     }
 

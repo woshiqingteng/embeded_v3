@@ -9,6 +9,7 @@ extern uint32_t SystemCoreClock;
 
 void bsp_runtime_stats_init(void);
 uint32_t bsp_runtime_stats_get(void);
+void fault_assert(const char *file, uint32_t line);
 
 #define configUSE_PREEMPTION                    1
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION 1
@@ -88,6 +89,6 @@ uint32_t bsp_runtime_stats_get(void);
 #define vPortSVCHandler     SVC_Handler
 #define xPortSysTickHandler SysTick_Handler
 
-#define configASSERT(x) do { if ((x) == 0) { __asm volatile ("cpsid i"); for (;;) { } } } while (0)
+#define configASSERT(x) do { if ((x) == 0) { fault_assert(__FILE__, __LINE__); } } while (0)
 
 #endif /* FREERTOS_CONFIG_H */

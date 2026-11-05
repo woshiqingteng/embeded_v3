@@ -6,7 +6,7 @@
 #include "semphr.h"
 #include "bsp_uart.h"
 #include "bsp_log.h"
-#include "ringbuf.h"
+#include "rb.h"
 
 #define UART_TX_RING_SIZE 2048U
 #define UART_RX_RING_SIZE 512U
@@ -46,7 +46,6 @@ static DMA_HandleTypeDef  g_dma_tx[BSP_UART_NUM];
 static uint8_t            g_tx_mem[BSP_UART_NUM][UART_TX_RING_SIZE];
 static uint8_t            g_rx_mem[BSP_UART_NUM][UART_RX_RING_SIZE];
 static uint8_t            g_tx_chunk[BSP_UART_NUM][UART_TX_CHUNK];
-static uint8_t            g_rx_byte[BSP_UART_NUM];
 static ringbuf_t          g_tx_rb[BSP_UART_NUM];
 static ringbuf_t          g_rx_rb[BSP_UART_NUM];
 static SemaphoreHandle_t  g_tx_mutex[BSP_UART_NUM];
@@ -89,9 +88,25 @@ static void uart_dma_init(uint8_t id)
     HAL_NVIC_EnableIRQ(hw->dma_irqn);
 }
 
+static uint32_t uart_dma_flags(uint8_t id)
+{
+    return (id == BSP_UART1)
+        ? (DMA_FLAG_TCIF3_7 | DMA_FLAG_HTIF3_7 | DMA_FLAG_TEIF3_7 |
+           DMA_FLAG_DMEIF3_7 | DMA_FLAG_FEIF3_7)
+        : (DMA_FLAG_TCIF2_6 | DMA_FLAG_HTIF2_6 | DMA_FLAG_TEIF2_6 |
+           DMA_FLAG_DMEIF2_6 | DMA_FLAG_FEIF2_6);
+}
+
+static void uart_dma_clear_flags(uint8_t id)
+{
+    __HAL_DMA_CLEAR_FLAG(&g_dma_tx[id], uart_dma_flags(id));
+}
+
 static void uart_tx_kick(uint8_t id)
 {
     uint32_t primask = __get_PRIMASK();
+    DMA_Stream_TypeDef *stream;
+    USART_TypeDef *instance;
     uint32_t n;
 
     if (id >= BSP_UART_NUM)
@@ -106,7 +121,7 @@ static void uart_tx_kick(uint8_t id)
         return;
     }
 
-    n = ringbuf_get(&g_tx_rb[id], g_tx_chunk[id], UART_TX_CHUNK);
+    n = rb_get(&g_tx_rb[id], g_tx_chunk[id], UART_TX_CHUNK);
     if (n == 0U)
     {
         __set_PRIMASK(primask);
@@ -116,10 +131,20 @@ static void uart_tx_kick(uint8_t id)
     g_tx_busy[id] = true;
     __set_PRIMASK(primask);
 
-    if (HAL_UART_Transmit_DMA(&g_uart[id], g_tx_chunk[id], (uint16_t)n) != HAL_OK)
-    {
-        g_tx_busy[id] = false;
-    }
+    stream = s_hw[id].dma_stream;
+    instance = s_hw[id].instance;
+
+    __HAL_DMA_DISABLE(&g_dma_tx[id]);
+    uart_dma_clear_flags(id);
+
+    stream->PAR = (uint32_t)&instance->DR;
+    stream->M0AR = (uint32_t)g_tx_chunk[id];
+    stream->NDTR = n;
+    __HAL_UART_DISABLE_IT(&g_uart[id], UART_IT_TC);
+    __HAL_UART_CLEAR_FLAG(&g_uart[id], UART_FLAG_TC);
+    __HAL_DMA_ENABLE_IT(&g_dma_tx[id], DMA_IT_TC | DMA_IT_TE | DMA_IT_DME);
+    __HAL_DMA_ENABLE(&g_dma_tx[id]);
+    instance->CR3 |= USART_CR3_DMAT;
 }
 
 int bsp_uart_init(void)
@@ -140,8 +165,8 @@ int bsp_uart_init(void)
         }
 
         uart_gpio_init(hw);
-        ringbuf_init(&g_tx_rb[id], g_tx_mem[id], UART_TX_RING_SIZE);
-        ringbuf_init(&g_rx_rb[id], g_rx_mem[id], UART_RX_RING_SIZE);
+        rb_init(&g_tx_rb[id], g_tx_mem[id], UART_TX_RING_SIZE);
+        rb_init(&g_rx_rb[id], g_rx_mem[id], UART_RX_RING_SIZE);
         g_tx_busy[id] = false;
         g_tx_mutex[id] = xSemaphoreCreateMutex();
 
@@ -164,10 +189,8 @@ int bsp_uart_init(void)
         HAL_NVIC_EnableIRQ(hw->irqn);
     }
 
-    if (HAL_UART_Receive_IT(&g_uart[BSP_UART1], &g_rx_byte[BSP_UART1], 1U) != HAL_OK)
-    {
-        ret = -1;
-    }
+    __HAL_UART_ENABLE_IT(&g_uart[BSP_UART1], UART_IT_RXNE);
+    __HAL_UART_ENABLE_IT(&g_uart[BSP_UART1], UART_IT_PE);
 
     if (ret == 0)
     {
@@ -215,7 +238,7 @@ uint32_t bsp_uart_write(bsp_uart_t id, const uint8_t *data, uint32_t len,
 
     while (written < len)
     {
-        uint32_t space = ringbuf_free(&g_tx_rb[id]);
+        uint32_t space = rb_space(&g_tx_rb[id]);
         uint32_t n;
 
         if (space == 0U)
@@ -234,7 +257,7 @@ uint32_t bsp_uart_write(bsp_uart_t id, const uint8_t *data, uint32_t len,
         {
             n = space;
         }
-        (void)ringbuf_put(&g_tx_rb[id], data + written, n);
+        (void)rb_put(&g_tx_rb[id], data + written, n);
         written += n;
         uart_tx_kick((uint8_t)id);
     }
@@ -249,7 +272,7 @@ uint32_t bsp_uart_read(bsp_uart_t id, uint8_t *data, uint32_t len)
     {
         return 0U;
     }
-    return ringbuf_get(&g_rx_rb[id], data, len);
+    return rb_get(&g_rx_rb[id], data, len);
 }
 
 bool bsp_uart_tx_busy(bsp_uart_t id)
@@ -257,54 +280,104 @@ bool bsp_uart_tx_busy(bsp_uart_t id)
     return (id < BSP_UART_NUM) ? g_tx_busy[id] : false;
 }
 
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+static void uart_irq_handler(uint8_t id)
 {
-    for (uint8_t id = 0U; id < BSP_UART_NUM; id++)
+    UART_HandleTypeDef *huart = &g_uart[id];
+
+    if ((__HAL_UART_GET_FLAG(huart, UART_FLAG_RXNE) != RESET) ||
+        (__HAL_UART_GET_FLAG(huart, UART_FLAG_ORE) != RESET) ||
+        (__HAL_UART_GET_FLAG(huart, UART_FLAG_NE) != RESET) ||
+        (__HAL_UART_GET_FLAG(huart, UART_FLAG_FE) != RESET) ||
+        (__HAL_UART_GET_FLAG(huart, UART_FLAG_PE) != RESET))
     {
-        if (huart->Instance == s_hw[id].instance)
+        uint8_t byte = (uint8_t)huart->Instance->DR;
+        if (__HAL_UART_GET_FLAG(huart, UART_FLAG_RXNE) != RESET)
         {
-            g_tx_busy[id] = false;
-            uart_tx_kick(id);
-            return;
+            (void)rb_put_byte(&g_rx_rb[id], byte);
+        }
+        if (__HAL_UART_GET_FLAG(huart, UART_FLAG_ORE) != RESET)
+        {
+            __HAL_UART_CLEAR_OREFLAG(huart);
+        }
+        if (__HAL_UART_GET_FLAG(huart, UART_FLAG_NE) != RESET)
+        {
+            __HAL_UART_CLEAR_NEFLAG(huart);
+        }
+        if (__HAL_UART_GET_FLAG(huart, UART_FLAG_FE) != RESET)
+        {
+            __HAL_UART_CLEAR_FEFLAG(huart);
+        }
+        if (__HAL_UART_GET_FLAG(huart, UART_FLAG_PE) != RESET)
+        {
+            __HAL_UART_CLEAR_PEFLAG(huart);
         }
     }
-}
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-    if (huart->Instance == USART1)
+    if ((__HAL_UART_GET_FLAG(huart, UART_FLAG_TC) != RESET) &&
+        (__HAL_UART_GET_IT_SOURCE(huart, UART_IT_TC) != RESET))
     {
-        (void)ringbuf_put_byte(&g_rx_rb[BSP_UART1], g_rx_byte[BSP_UART1]);
-        (void)HAL_UART_Receive_IT(&g_uart[BSP_UART1], &g_rx_byte[BSP_UART1], 1U);
-    }
-}
-
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
-{
-    if (huart->Instance == USART1)
-    {
-        (void)HAL_UART_Receive_IT(&g_uart[BSP_UART1], &g_rx_byte[BSP_UART1], 1U);
+        __HAL_UART_CLEAR_FLAG(huart, UART_FLAG_TC);
+        __HAL_UART_DISABLE_IT(huart, UART_IT_TC);
+        huart->Instance->CR3 &= ~USART_CR3_DMAT;
+        g_tx_busy[id] = false;
+        uart_tx_kick(id);
     }
 }
 
 void USART1_IRQHandler(void)
 {
-    HAL_UART_IRQHandler(&g_uart[BSP_UART1]);
+    uart_irq_handler(BSP_UART1);
 }
 
 void USART2_IRQHandler(void)
 {
-    HAL_UART_IRQHandler(&g_uart[BSP_UART2]);
+    uart_irq_handler(BSP_UART2);
 }
 
 void DMA2_Stream7_IRQHandler(void)
 {
-    HAL_DMA_IRQHandler(&g_dma_tx[BSP_UART1]);
+    if (__HAL_DMA_GET_FLAG(&g_dma_tx[BSP_UART1], DMA_FLAG_TCIF3_7) != RESET)
+    {
+        __HAL_DMA_CLEAR_FLAG(&g_dma_tx[BSP_UART1], uart_dma_flags(BSP_UART1));
+        __HAL_DMA_DISABLE(&g_dma_tx[BSP_UART1]);
+        g_dma_tx[BSP_UART1].Instance->CR &= ~DMA_SxCR_EN;
+        g_uart[BSP_UART1].Instance->CR3 &= ~USART_CR3_DMAT;
+        __HAL_UART_ENABLE_IT(&g_uart[BSP_UART1], UART_IT_TC);
+    }
+    else if ((__HAL_DMA_GET_FLAG(&g_dma_tx[BSP_UART1], DMA_FLAG_TEIF3_7) != RESET) ||
+             (__HAL_DMA_GET_FLAG(&g_dma_tx[BSP_UART1], DMA_FLAG_DMEIF3_7) != RESET) ||
+             (__HAL_DMA_GET_FLAG(&g_dma_tx[BSP_UART1], DMA_FLAG_FEIF3_7) != RESET))
+    {
+        __HAL_DMA_CLEAR_FLAG(&g_dma_tx[BSP_UART1],
+                             DMA_FLAG_TEIF3_7 | DMA_FLAG_DMEIF3_7 | DMA_FLAG_FEIF3_7);
+        __HAL_DMA_DISABLE(&g_dma_tx[BSP_UART1]);
+        g_uart[BSP_UART1].Instance->CR3 &= ~USART_CR3_DMAT;
+        g_tx_busy[BSP_UART1] = false;
+        uart_tx_kick(BSP_UART1);
+    }
 }
 
 void DMA1_Stream6_IRQHandler(void)
 {
-    HAL_DMA_IRQHandler(&g_dma_tx[BSP_UART2]);
+    if (__HAL_DMA_GET_FLAG(&g_dma_tx[BSP_UART2], DMA_FLAG_TCIF2_6) != RESET)
+    {
+        __HAL_DMA_CLEAR_FLAG(&g_dma_tx[BSP_UART2], uart_dma_flags(BSP_UART2));
+        __HAL_DMA_DISABLE(&g_dma_tx[BSP_UART2]);
+        g_dma_tx[BSP_UART2].Instance->CR &= ~DMA_SxCR_EN;
+        g_uart[BSP_UART2].Instance->CR3 &= ~USART_CR3_DMAT;
+        __HAL_UART_ENABLE_IT(&g_uart[BSP_UART2], UART_IT_TC);
+    }
+    else if ((__HAL_DMA_GET_FLAG(&g_dma_tx[BSP_UART2], DMA_FLAG_TEIF2_6) != RESET) ||
+             (__HAL_DMA_GET_FLAG(&g_dma_tx[BSP_UART2], DMA_FLAG_DMEIF2_6) != RESET) ||
+             (__HAL_DMA_GET_FLAG(&g_dma_tx[BSP_UART2], DMA_FLAG_FEIF2_6) != RESET))
+    {
+        __HAL_DMA_CLEAR_FLAG(&g_dma_tx[BSP_UART2],
+                             DMA_FLAG_TEIF2_6 | DMA_FLAG_DMEIF2_6 | DMA_FLAG_FEIF2_6);
+        __HAL_DMA_DISABLE(&g_dma_tx[BSP_UART2]);
+        g_uart[BSP_UART2].Instance->CR3 &= ~USART_CR3_DMAT;
+        g_tx_busy[BSP_UART2] = false;
+        uart_tx_kick(BSP_UART2);
+    }
 }
 
 int __io_putchar(int ch)

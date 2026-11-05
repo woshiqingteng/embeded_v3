@@ -1,6 +1,8 @@
 # FreeRTOS is exposed upward as a single target. The kernel sources and the
 # Cortex-M4 port are intentionally kept together here, mirroring the mw targets;
 # no separate core/port targets are exposed to upper layers.
+set(FREERTOS_HEAP "heap_4.c" CACHE STRING "FreeRTOS heap implementation")
+
 add_library(os_freertos STATIC
     ${TP_FREERTOS}/tasks.c
     ${TP_FREERTOS}/queue.c
@@ -8,7 +10,7 @@ add_library(os_freertos STATIC
     ${TP_FREERTOS}/event_groups.c
     ${TP_FREERTOS}/stream_buffer.c
     ${TP_FREERTOS}/portable/GCC/ARM_CM4F/port.c
-    ${TP_FREERTOS}/portable/MemMang/heap_4.c
+    ${TP_FREERTOS}/portable/MemMang/${FREERTOS_HEAP}
 )
 
 target_include_directories(os_freertos PUBLIC
@@ -18,4 +20,5 @@ target_include_directories(os_freertos PUBLIC
 )
 
 target_link_libraries(os_freertos PUBLIC cmsis_device ${MCU_ARCH_INTERFACE})
+target_link_libraries(os_freertos PRIVATE bsp_runtime_stats)
 target_compile_options(os_freertos PRIVATE -Wno-unused-parameter -Wno-sign-compare)

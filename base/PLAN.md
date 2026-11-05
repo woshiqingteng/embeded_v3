@@ -362,3 +362,182 @@ FreeRTOS 11.3.3 的 `uxCriticalNesting` 在调度器启动前为 `0xaaaaaaaa`。
   - `sd dma status`、`sd dma off` 正常；
   - `sd dma on` 当前自检超时，保持阻塞模式，不破坏 U 盘读取。
 - Debug/Release 均构建通过；Release FLASH 约 323.6 KB。
+
+## 25. 接口收敛与 HIL 复验计划（2026-11-05）
+
+### 25.1 ringbuf / bitops
+- `common/ringbuf.h` 重命名为 `common/rb.h`，函数统一 `rb_` 前缀。
+- SPSC 数据结构：`buf/size/mask/head(volatile)/tail(volatile)`。
+- 状态统一：`empty: head==tail`，`full: ((head+1)&mask)==tail`，`count: (head-tail)&mask`。
+- 屏障使用 CMSIS `__DMB()`，不再使用内联汇编。
+- `common` 目标依赖 `cmsis_core`。
+- `bitops.h` 保留 CMSIS `SET_BIT/CLEAR_BIT` 语义，新增 `BIT_SET/BIT_CLR/TOGGLE_BIT/CHECK_BIT/REG32/BF_GET/BF_SET`。
+
+### 25.2 letter-shell 官方导出机制
+- `SHELL_USING_CMD_EXPORT` 改为 1。
+- 链接脚本 `.rodata` 增加 `KEEP(*(shellCommand))` 和 `_shell_command_start/_shell_command_end`。
+- `app/system/shell_commands.c` 删除静态命令表，改用 `SHELL_EXPORT_CMD` / `SHELL_EXPORT_CMD_AGENCY`。
+- 删除对官方内置命令的重复导出，`sh` 使用官方代理宏。
+- HIL 使用 `cmds`、`help`、`help fs` 验证导出结果。
+
+### 25.3 BSP 接口与文件缩减
+- `bsp_oled`：`oled.c/h` + `oled_port.c` + `oledfont.h`；删除 `oled_ssd1306.*` 和未使用字体/API，公共头不再包含 HAL。
+- `bsp_core`：时基/看门狗并入 `bsp_core.c`；保留内部 `bsp_core_clock.h` 与独立 `bsp_runtime_stats.c`；公共头不再包含 HAL。
+- `bsp_nor`：`nor_w25q256jv.*`、`spi.*` 合并进 `nor.c/h`。
+- `bsp_sd`：`sd_card_info_t` 上移到 `bsp_sd.h`，合并 SDIO 实现到 `bsp_sd.c/h`。
+- `bsp_usb`：移动到 `port/openedv_stm32f4/cherryusb/usb_msp.c`，删除 BSP 模块和 anchor。
+- 删除未使用接口：`bsp_pow`、`bsp_core_delay_*`、`bsp_core_get_tick`、`bsp_core_timebase_reinit`、`bsp_log_printf_ex`、`mw_fatfs_handle`、`mw_littlefs_is_mounted/format`、`mw_shell_handle/input`、`mw_log_shutdown`、`get_sd_card_info`、`get_sd_card_state`、`sd_total_size_mb`。
+
+### 25.4 按键 FSM
+- 新增 header-only `common/key_fsm.h`，状态/动作与约定一致。
+- 板级按键保持 10 ms 扫描，20 ms 消抖按 2 次计数。
+- `bsp_key_scan_10ms()` 返回事件数组；`app_tick` 只投递按下事件。
+
+### 25.5 FreeRTOS heap
+- 从本机 FreeRTOS 11.3.3 源码补回 `heap_1/2/3/4/5.c`。
+- `os_freertos` 只编译 `heap_4.c`。
+
+### 25.6 构建与 HIL
+- 修复 `cmd_pwm` 重复设置、更新 `cmd_fault` 输出。
+- Debug/Release 从空构建目录编译通过。
+- 使用 `firmware_flash` 烧录 Debug 固件。
+- 自动探测 115200 Shell 串口，执行 `cmds/help/fs/sd/nor/adc/pwm/led/key/oled/log/usb` 验证。
+- 增加 `sd stats`，记录 DMA 自检、SDIO/DMA 中断、错误计数。
+- 压力验证：日志高频写入、USB MSC 读取、SD DMA 切换、IWDG 连续运行。
+
+## 26. 接口收敛、官方 Shell 导出与 HIL 复验结果（2026-11-05）
+
+### 已完成
+- `rb.h` 统一 `rb_` API，结构含 `buf/size/mask/head/tail`，使用 CMSIS `__DMB()`。
+- `bitops.h` 增加 `BIT_SET/BIT_CLR/TOGGLE_BIT/CHECK_BIT/REG32/BF_MASK/BF_GET/BF_SET`，保留 CMSIS `SET_BIT/CLEAR_BIT` 语义。
+- letter-shell 改用 `SHELL_USING_CMD_EXPORT=1` 官方导出机制：
+  - 链接脚本 `.rodata` 增加 `KEEP(*(shellCommand))` 与 `_shell_command_start/_shell_command_end`。
+  - `shell_commands.c` 删除静态命令表，改用 `SHELL_EXPORT_CMD` / `SHELL_EXPORT_CMD_AGENCY`。
+  - `SHELL_GET_TICK()` 改为 `HAL_GetTick()`，启用官方双击 Tab 帮助。
+  - HIL `cmds` 输出 26 个内置/app 命令，无重复。
+- 按键改为 FSM：`common/key_fsm.h`，10 ms 扫描，20 ms 消抖（2 次计数）。
+- BSP 文件合并：
+  - `bsp_core`：时基/看门狗并入 `bsp_core.c`。
+  - `bsp_nor`：SPI、W25Q256JV 芯片驱动并入 `nor.c`。
+  - `bsp_sd`：SDIO 低层并入 `bsp_sd.c`。
+  - `bsp_oled`：SSD1306 控制器并入 `oled.c`，新增 `oled_port.c`。
+  - `bsp_usb`：移到 `port/openedv_stm32f4/cherryusb/usb_msp.c`。
+- 删除未使用接口：`bsp_pow`、`bsp_core_delay_*`、`bsp_core_get_tick`、`bsp_core_timebase_reinit`、`bsp_log_printf_ex`、`mw_fatfs_handle`、`mw_littlefs_is_mounted/format`、`mw_shell_handle`、`mw_log_shutdown`、`get_sd_card_info`、`get_sd_card_state`、`sd_total_size_mb`。
+- FreeRTOS `heap_1/2/3/4/5.c` 已保留，构建只使用 `heap_4.c`。
+- WK_UP 不再点亮绿灯，只把 PWM 复位到 500‰。
+- 修复 `cmd_pwm` 重复设置；`cmd_fault` 输出扩展后的 fault 字段。
+- 新增 `sd stats`、`sd test` 诊断命令。
+
+### HIL 结果（COM19，115200）
+- Debug 烧录：`program ... verify reset` 成功。
+- Shell 提示符 `letter:/$` 正常；命令通过调试器注入 RX ring 验证。
+- `stats`：`heap=33584 B tasks=10`。
+- `fs state`：`storage=msc_ro sd=0 flash=1`（USB MSC 占用 SD 时 FatFs 正确卸载）。
+- `fs df /flash:`：`block=4096 total=1024 free=1019`。
+- `fs ls /flash:`：`log` 目录存在；`fs ls /flash:/log`：`app.log` 存在。
+- `nor id`：`0xef18`。
+- `adc`：6 路 mV 正常更新。
+- `sd info`：30247 MiB，只读，owner=2（MSC）。
+- `sd test 0`：阻塞读成功，MBR 签名 `55aa`。
+- `sd dma on`：自检仍失败，保持阻塞模式；`sd stats` 记录 `error=0x20/0x02`、`start=1`。当前板卡/时钟组合下 DMA 读不可用，阻塞回退正常。
+- `key 3`（WK_UP）：PWM 复位到 500‰，`led1` 保持 off。
+- `tasks`：无持续增长的异常任务栈；`heap_min=28864 B`。
+
+### 结论
+- Shell 官方导出、FS 抽象、按键 FSM、BSP/MW 接口收敛和文件缩减已完成。
+- SDIO DMA 仍受板卡/数据 CRC 限制，保持“自检失败自动回退阻塞”的安全策略。
+
+## 27. SDIO DMA 修复完成（2026-11-05）
+
+### 根因
+- 自定义“纯标志位 + 手动 DMA”路径与 STM32F4 SDIO 外部 DMA 的时序组合不稳定，表现为：
+  - `RXOVERR` / `DCRCFAIL`
+  - DMA 剩余 `NDTR=4`
+  - FIFO 残留 `RXFIFOHF`
+- HAL 官方 `HAL_SD_ReadBlocks_DMA` 路径在同一板卡上可正常工作，说明问题在 DMA 配置和完成时序，不在卡或硬件连接。
+
+### 最终配置
+按 ST 官方 BSP 的 SDIO DMA 配置修正：
+
+- RX：DMA2 Stream3 Channel4
+- TX：DMA2 Stream6 Channel4
+- `Mode = DMA_PFCTRL`
+- `Priority = DMA_PRIORITY_VERY_HIGH`
+- `FIFOMode = DMA_FIFOMODE_ENABLE`
+- `FIFOThreshold = DMA_FIFO_THRESHOLD_FULL`
+- `MemBurst = DMA_MBURST_INC4`
+- `PeriphBurst = DMA_PBURST_INC4`
+- SDIO `HardwareFlowControl = DISABLE`（该板开启后阻塞回退读失败）
+- SDIO/DMA NVIC 均使能
+
+### 实现
+- DMA 数据面改为使用 HAL SD DMA 状态机：
+  - `HAL_SD_ReadBlocks_DMA()`
+  - `HAL_SD_WriteBlocks_DMA()`
+  - `SDIO_IRQHandler -> HAL_SD_IRQHandler()`
+  - `DMA2_Stream3/6_IRQHandler -> HAL_DMA_IRQHandler()`
+- 不再定义 BSP 侧 SD HAL callback；完成通过轮询 `g_sdcard_handle.State` / `ErrorCode` 判断。
+- 每次传输前使能 SDIO/DMA NVIC，完成后立即关闭并清 pending，避免中断风暴。
+- 阻塞路径仍保留，DMA 失败时自动回退；`sd dma off` 会先 Abort/CMD12/FIFO 清理，之后阻塞读可正常使用。
+- `SD_TIMEOUT_COUNT` 仍为 3000 ms，单次 `sd dma on` 远低于 30 s。
+
+### HIL 验证
+- `sd dma on`：成功，返回 `sd dma=on`，耗时远低于 30 s。
+- `sd stats`：
+  - `dma selftest=0`
+  - 单次传输约 `sdio_irq +1`、`dma_irq +1`，无中断风暴
+  - `error=0x00000000`
+  - `start=0`
+- 单块 DMA 读：
+  - `sd test 0` -> MBR 签名 `55aa`
+- 多块 DMA 读：
+  - `sd test 0 8` -> 8 块成功
+  - `sd test 8 8` -> 8 块成功
+- 8 块多块 DMA 读连续测试通过，统计计数每次仅增加 1
+- DMA/阻塞切换：
+  - `sd dma off` 后 `sd test 0` 成功
+  - 再 `sd dma on` 后 `sd test 0` 成功
+- Debug/Release 构建通过，自有代码无警告。
+
+### 结论
+SDIO DMA 已修复并启用；当前 `sd dma on` 自检通过，单块/多块 DMA 读正常，阻塞模式仍作为回退路径保留。
+
+## 28. EasyFlash 循环日志 + RTC/OLED + 内部 Flash 分区（2026-11-05）
+
+### 实现
+- 引入 EasyFlash 4.1.99，仅启用 `EF_USING_LOG`。
+- 内部 Flash 最后 256 KB（扇区 10/11，0x080C0000）作为 EasyFlash 日志区。
+- `EF_ERASE_MIN_SIZE=128 KB`，`EF_WRITE_GRAN=8`，满足 EasyFlash 两扇区循环日志要求。
+- 新增 `mw/fs/fs_logfs.c` 适配层：
+  - 挂载点 `/flash:`
+  - 虚拟文件 `/flash:/log/app.log`
+  - `fs_open/read/write/stat/opendir/readdir/statvfs/unlink`
+  - EasyFlash 4 字节对齐缓冲、`ef_log_write/read/clean`
+- 内部 Flash 驱动：`bsp_internal_flash`，使用 HAL FLASH word 编程/扇区擦除。
+- 链接脚本增加 `_app_flash_end <= 0x080C0000` 检查。
+- IWDG 调整为约 8 s，适配 128 KB 扇区擦除。
+- NOR LittleFS 改为仅挂载 `/nor:`，不再写日志。
+- 新增 `bsp_rtc`：
+  - LSE 优先，失败回退 LSI
+  - `RTC_BKP_DR0` 初始化标记
+  - Shell `rtc` / `rtc set`
+- OLED 第 8 行（y=56）显示 `YYYY-MM-DD HH:MM:SS`。
+- HAL 补齐 Flash/RTC 源文件，启用 `HAL_RTC_MODULE_ENABLED`。
+
+### HIL 结果
+- `fs state`：`storage=msc_ro sd=0 flash=1 nor=1`
+- `fs df /flash:`：`total=262120`（EasyFlash 扣除扇区头后的容量）
+- `fs ls /flash:/log`：`app.log` 正常
+- `fs cat /flash:/log/app.log`：可读，回绕后从最旧记录开始
+- `log fill 300` 连续执行后：
+  - EasyFlash 自动回绕，旧日志被覆盖
+  - `fs df /flash:` 仍有空间，无 `ENOSPC`
+  - 无 IWDG 复位
+- 复位后：
+  - `/flash:` 日志仍存在
+  - RTC 时间继续运行
+  - NOR `/nor:` 仍挂载
+- `rtc set 2026-11-05 12:34:56` 后 `rtc` 返回正确时间
+- `sd dma on`、`sd test 0 8` 回归通过
+- Debug/Release 构建通过，无自有代码警告
+- 当前 Release 固件约 359 KB，低于 768 KB 应用上限

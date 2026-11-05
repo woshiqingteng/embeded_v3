@@ -17,6 +17,10 @@ add_library(drv_hal STATIC
     ${HAL_SRC}/stm32f4xx_hal_tim_ex.c
     ${HAL_SRC}/stm32f4xx_hal_uart.c
     ${HAL_SRC}/stm32f4xx_hal_iwdg.c
+    ${HAL_SRC}/stm32f4xx_hal_flash.c
+    ${HAL_SRC}/stm32f4xx_hal_flash_ex.c
+    ${HAL_SRC}/stm32f4xx_hal_rtc.c
+    ${HAL_SRC}/stm32f4xx_hal_rtc_ex.c
     ${HAL_SRC}/stm32f4xx_hal_sd.c
     ${HAL_SRC}/stm32f4xx_ll_sdmmc.c
     ${HAL_SRC}/stm32f4xx_hal_pcd.c
@@ -33,7 +37,6 @@ target_compile_definitions(drv_hal PUBLIC
     HAL_CORTEX_MODULE_ENABLED
     HAL_DMA_MODULE_ENABLED
     HAL_EXTI_MODULE_ENABLED
-    HAL_FLASH_MODULE_ENABLED
     HAL_GPIO_MODULE_ENABLED
     HAL_IWDG_MODULE_ENABLED
     HAL_PCD_MODULE_ENABLED

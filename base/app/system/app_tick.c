@@ -18,10 +18,17 @@ static void app_tick_run(void)
     n++;
     app_wdg_kick(WDG_BIT_TICK);
 
-    bsp_key_id_t key = bsp_key_scan_10ms();
-    if (key != BSP_KEY_NONE)
     {
-        app_key_notify((uint32_t)key);
+        bsp_key_event_t events[BSP_KEY_NUM];
+        uint8_t count = bsp_key_scan_10ms(events, BSP_KEY_NUM);
+
+        for (uint8_t i = 0U; i < count; i++)
+        {
+            if (events[i].action == KEY_ACT_PRESS)
+            {
+                app_key_notify((uint32_t)events[i].id);
+            }
+        }
     }
 
     if ((n % 5U) == 0U)

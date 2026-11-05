@@ -1,0 +1,3 @@
+add_library(bsp_internal_flash STATIC bsp_internal_flash.c)
+target_include_directories(bsp_internal_flash PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(bsp_internal_flash PRIVATE drv bsp_log os_freertos)

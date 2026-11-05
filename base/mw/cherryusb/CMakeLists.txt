@@ -6,7 +6,6 @@ add_library(mw_cherryusb STATIC
     ${TP_CHERRYUSB}/port/dwc2/usb_dc_dwc2.c
     ${TP_CHERRYUSB}/port/dwc2/usb_glue_st.c
     ${BOARD_CHERRYUSB_SOURCES}
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb_bridge.c
 )
 target_include_directories(mw_cherryusb PUBLIC
     ${TP_CHERRYUSB}
@@ -22,10 +21,8 @@ target_include_directories(mw_cherryusb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${BOARD_PORT_DIR}/cherryusb
 )
-target_link_libraries(mw_cherryusb PUBLIC
-    bsp_usb
+target_link_libraries(mw_cherryusb PRIVATE
     bsp_sd
-    mw_fatfs
     os_freertos
     drv
 )

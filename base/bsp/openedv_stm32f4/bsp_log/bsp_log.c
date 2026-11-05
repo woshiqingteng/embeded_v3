@@ -5,8 +5,7 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include "bsp_log.h"
-#include "bsp_uart.h"
-#include "ringbuf.h"
+#include "rb.h"
 
 #define BSP_LOG_RING_SIZE 8192U
 #define BSP_LOG_CHUNK     256U
@@ -15,23 +14,23 @@ static uint8_t           g_log_mem[BSP_LOG_RING_SIZE];
 static ringbuf_t         g_log_rb;
 static SemaphoreHandle_t g_log_mutex;
 static volatile uint32_t g_dropped;
-static volatile uint8_t  g_uart_enabled;
+static bsp_log_sink_t    g_console_sink;
 static bsp_log_sink_t    g_file_sink;
 static volatile uint8_t  g_log_ready;
 
 void bsp_log_init(void)
 {
-    ringbuf_init(&g_log_rb, g_log_mem, BSP_LOG_RING_SIZE);
+    rb_init(&g_log_rb, g_log_mem, BSP_LOG_RING_SIZE);
     g_log_mutex = xSemaphoreCreateMutex();
     g_dropped = 0U;
-    g_uart_enabled = 0U;
+    g_console_sink = 0;
     g_file_sink = 0;
     g_log_ready = 1U;
 }
 
-void bsp_log_attach_uart(void)
+void bsp_log_attach_console(bsp_log_sink_t sink)
 {
-    g_uart_enabled = 1U;
+    g_console_sink = sink;
 }
 
 void bsp_log_attach_sink(bsp_log_sink_t sink)
@@ -55,7 +54,7 @@ void bsp_log_write(const uint8_t *data, uint32_t len)
         return;
     }
 
-    put = ringbuf_put(&g_log_rb, data, len);
+    put = rb_put(&g_log_rb, data, len);
     if (put < len)
     {
         g_dropped += (len - put);
@@ -106,16 +105,6 @@ static void bsp_log_vprintf(const char *source, bsp_log_level_t level,
     bsp_log_write((const uint8_t *)buf, (uint32_t)n);
 }
 
-void bsp_log_printf_ex(const char *source, bsp_log_level_t level,
-                       const char *tag, const char *fmt, ...)
-{
-    va_list ap;
-
-    va_start(ap, fmt);
-    bsp_log_vprintf(source, level, tag, fmt, ap);
-    va_end(ap);
-}
-
 void bsp_log_printf(bsp_log_level_t level, const char *tag,
                     const char *fmt, ...)
 {
@@ -132,16 +121,16 @@ void bsp_log_poll(void)
 
     for (;;)
     {
-        uint32_t n = ringbuf_get(&g_log_rb, chunk, sizeof(chunk));
+        uint32_t n = rb_get(&g_log_rb, chunk, sizeof(chunk));
 
         if (n == 0U)
         {
             break;
         }
 
-        if (g_uart_enabled)
+        if (g_console_sink != 0)
         {
-            (void)bsp_uart_write(BSP_UART1, chunk, n, 0U);
+            g_console_sink(chunk, n);
         }
 
         if (g_file_sink != 0)

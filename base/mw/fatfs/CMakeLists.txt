@@ -9,5 +9,5 @@ target_include_directories(mw_fatfs PUBLIC
     ${BOARD_FATFS_CONFIG_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
-target_link_libraries(mw_fatfs PUBLIC bsp_sd os_freertos drv)
+target_link_libraries(mw_fatfs PRIVATE bsp_sd os_freertos drv)
 target_compile_options(mw_fatfs PRIVATE -Wno-unused-parameter -Wno-sign-compare)

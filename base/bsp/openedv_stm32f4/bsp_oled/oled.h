@@ -1,6 +1,6 @@
 /**
  * @file    oled.h
- * @brief   SSD1306 128x64 OLED driver over the 8080 8-bit parallel bus.
+ * @brief   SSD1306 128x64 OLED panel API.
  */
 
 #ifndef BSP_OLED_H
@@ -8,8 +8,6 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-
-#include "stm32f4xx_hal.h"
 
 /** @brief  Selectable ASCII font heights. */
 typedef enum
@@ -34,7 +32,5 @@ void oled_refresh(void);
 
 void oled_show_string(uint8_t x, uint8_t y, const char *str, oled_font_t size);
 
-/** @brief  Draw a right-aligned number of len digits at (x,y). */
-void oled_show_num(uint8_t x, uint8_t y, uint32_t num, uint8_t len, oled_font_t size);
 
 #endif /* BSP_OLED_H */

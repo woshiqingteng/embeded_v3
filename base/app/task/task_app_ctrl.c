@@ -46,7 +46,6 @@ void task_ctrl(void *arg)
                 }
 
                 case BSP_KEY_WKUP:
-                    bsp_led_on(BSP_LED1);
                     bsp_pwm_set_duty(500U);
                     app_state_set_pwm(500U);
                     break;

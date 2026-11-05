@@ -101,11 +101,6 @@ int mw_littlefs_format(void)
     return ret;
 }
 
-bool mw_littlefs_is_mounted(void)
-{
-    return g_mounted;
-}
-
 lfs_t *mw_littlefs_handle(void)
 {
     return &g_lfs;

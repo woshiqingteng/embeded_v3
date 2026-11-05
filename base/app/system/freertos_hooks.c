@@ -1,20 +1,15 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "fault_info.h"
+
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 {
     (void)xTask;
-    (void)pcTaskName;
-    __asm volatile ("cpsid i");
-    for (;;)
-    {
-    }
+    fault_stack_overflow(pcTaskName);
 }
 
 void vApplicationMallocFailedHook(void)
 {
-    __asm volatile ("cpsid i");
-    for (;;)
-    {
-    }
+    fault_record_reset(APP_FAULT_TYPE_MALLOC);
 }

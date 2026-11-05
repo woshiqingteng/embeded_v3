@@ -15,8 +15,8 @@ static int lfs_bd_read(const struct lfs_config *c, lfs_block_t block,
     {
         return LFS_ERR_INVAL;
     }
-    nor_read((uint8_t *)buffer, addr, (uint16_t)size);
-    return LFS_ERR_OK;
+    return (nor_read((uint8_t *)buffer, addr, (uint16_t)size) == 0)
+               ? LFS_ERR_OK : LFS_ERR_IO;
 }
 
 static int lfs_bd_prog(const struct lfs_config *c, lfs_block_t block,
@@ -28,8 +28,8 @@ static int lfs_bd_prog(const struct lfs_config *c, lfs_block_t block,
     {
         return LFS_ERR_INVAL;
     }
-    nor_write_erased((uint8_t *)buffer, addr, (uint16_t)size);
-    return LFS_ERR_OK;
+    return (nor_write_erased((uint8_t *)buffer, addr, (uint16_t)size) == 0)
+               ? LFS_ERR_OK : LFS_ERR_IO;
 }
 
 static int lfs_bd_erase(const struct lfs_config *c, lfs_block_t block)
@@ -40,8 +40,8 @@ static int lfs_bd_erase(const struct lfs_config *c, lfs_block_t block)
     {
         return LFS_ERR_INVAL;
     }
-    nor_erase_sector(addr / NOR_SECTOR_SIZE_BYTE);
-    return LFS_ERR_OK;
+    return (nor_erase_sector(addr / NOR_SECTOR_SIZE_BYTE) == 0)
+               ? LFS_ERR_OK : LFS_ERR_IO;
 }
 
 static int lfs_bd_sync(const struct lfs_config *c)

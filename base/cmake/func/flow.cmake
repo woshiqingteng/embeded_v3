@@ -38,34 +38,12 @@ function(mcu_flash target base)
         message(FATAL_ERROR "OPENOCD_INTERFACE / OPENOCD_TARGET not set")
     endif()
 
-    set(_addr "${MCU_FLASH_ADDR}")
-    if(NOT _addr)
-        set(_addr "${MCU_FLASH_BASE}")
-    endif()
-
-    if(MCU_BOOT_MODE STREQUAL "flash")
-        add_custom_target(${target}_flash
-            COMMAND ${OPENOCD}
-                    -f interface/${OPENOCD_INTERFACE}
-                    -f target/${OPENOCD_TARGET}
-                    -c "program $<TARGET_FILE_DIR:${target}>/${base}.bin ${_addr} verify reset exit"
-            DEPENDS ${target}
-            USES_TERMINAL
-            COMMENT "Flashing ${base}.bin to FLASH @ ${_addr}")
-    elseif(MCU_BOOT_MODE STREQUAL "ram")
-        add_custom_target(${target}_flash
-            COMMAND ${OPENOCD}
-                    -f interface/${OPENOCD_INTERFACE}
-                    -f target/${OPENOCD_TARGET}
-                    -c "halt"
-                    -c "load_image $<TARGET_FILE_DIR:${target}>/${base}.bin ${_addr} bin"
-                    -c "reg pc ${_addr}"
-                    -c "resume"
-                    -c "shutdown"
-            DEPENDS ${target}
-            USES_TERMINAL
-            COMMENT "Loading ${base}.bin to RAM @ ${_addr}")
-    else()
-        message(FATAL_ERROR "Invalid MCU_BOOT_MODE: ${MCU_BOOT_MODE}")
-    endif()
+    add_custom_target(${target}_flash
+        COMMAND ${OPENOCD}
+                -f interface/${OPENOCD_INTERFACE}
+                -f target/${OPENOCD_TARGET}
+                -c "program $<TARGET_FILE_DIR:${target}>/${base}.bin ${MCU_FLASH_BASE} verify reset exit"
+        DEPENDS ${target}
+        USES_TERMINAL
+        COMMENT "Flashing ${base}.bin to FLASH @ ${MCU_FLASH_BASE}")
 endfunction()

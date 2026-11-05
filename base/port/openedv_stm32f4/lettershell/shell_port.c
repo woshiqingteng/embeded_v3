@@ -51,11 +51,6 @@ int mw_shell_init(void)
     return (g_shell_mutex != 0) ? 0 : -1;
 }
 
-Shell *mw_shell_handle(void)
-{
-    return &g_shell;
-}
-
 void mw_shell_input(char c)
 {
     shellHandler(&g_shell, c);

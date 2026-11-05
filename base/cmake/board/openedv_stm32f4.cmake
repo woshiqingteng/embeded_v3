@@ -22,6 +22,7 @@ set(BOARD_LETTERSHELL_CONFIG_DIR ${BOARD_PORT_DIR}/lettershell)
 
 set(BOARD_CHERRYUSB_SOURCES
     ${BOARD_PORT_DIR}/cherryusb/cherryusb_class_cb.c
+    ${BOARD_PORT_DIR}/cherryusb/usb_msp.c
 )
 set(BOARD_FATFS_SOURCES
     ${BOARD_PORT_DIR}/fatfs/diskio_sd.c

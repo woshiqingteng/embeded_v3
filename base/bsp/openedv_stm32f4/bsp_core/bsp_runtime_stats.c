@@ -1,14 +1,24 @@
 #include "stm32f4xx_hal.h"
+#include "bsp_core_clock.h"
 
 static TIM_HandleTypeDef g_tim7;
 static volatile uint32_t g_runtime_ticks;
 
 void bsp_runtime_stats_init(void)
 {
+    uint32_t tim_clk = bsp_clock_apb1_timer_hz();
+    uint32_t psc;
+
+    if ((tim_clk < 1000000U) || ((tim_clk % 1000000U) != 0U))
+    {
+        return;
+    }
+    psc = (tim_clk / 1000000U) - 1U;
+
     __HAL_RCC_TIM7_CLK_ENABLE();
 
     g_tim7.Instance               = TIM7;
-    g_tim7.Init.Prescaler         = 83U;  /* 84 MHz / 84 = 1 MHz */
+    g_tim7.Init.Prescaler         = psc;  /* timer clock / 1 MHz */
     g_tim7.Init.CounterMode       = TIM_COUNTERMODE_UP;
     g_tim7.Init.Period            = 99U;  /* 1 MHz / 100 = 10 kHz */
     g_tim7.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;

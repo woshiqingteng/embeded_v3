@@ -11,5 +11,5 @@ target_include_directories(mw_littlefs PUBLIC
     ${BOARD_PORT_DIR}/littlefs
 )
 target_compile_definitions(mw_littlefs PUBLIC LFS_DEFINES=lfs_alloc.h)
-target_link_libraries(mw_littlefs PUBLIC bsp_nor os_freertos drv)
+target_link_libraries(mw_littlefs PRIVATE bsp_nor os_freertos drv)
 target_compile_options(mw_littlefs PRIVATE -Wno-unused-parameter -Wno-sign-compare)

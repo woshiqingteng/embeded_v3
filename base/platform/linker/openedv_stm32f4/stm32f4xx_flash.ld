@@ -52,6 +52,10 @@ SECTIONS
   .rodata :
   {
     . = ALIGN(4);
+    _shell_command_start = .;
+    KEEP(*(shellCommand))
+    _shell_command_end = .;
+
     *(.rodata)
     *(.rodata*)
     . = ALIGN(4);
@@ -103,6 +107,10 @@ SECTIONS
     . = ALIGN(4);
     _edata = .;
   } >RAM AT> FLASH :data
+
+  _app_flash_end = LOADADDR(.data) + SIZEOF(.data);
+  ASSERT(_app_flash_end <= 0x080C0000,
+         "firmware overlaps internal log area at 0x080C0000")
 
   .noinit (NOLOAD) :
   {

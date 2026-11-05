@@ -10,6 +10,20 @@
 #define CLR_BITS(reg, mask)     ((reg) &= ~(mask))
 #define READ_BITS(reg, mask)    ((reg) & (mask))
 
+
+#define BIT_SET(reg, n)      ((reg) |=  (1UL << (n)))
+#define BIT_CLR(reg, n)      ((reg) &= ~(1UL << (n)))
+#define TOGGLE_BIT(reg, n)   ((reg) ^=  (1UL << (n)))
+#define CHECK_BIT(reg, n)    (((reg) >> (n)) & 1UL)
+#define REG32(addr)          (*(volatile uint32_t *)(uintptr_t)(addr))
+
+#define BF_MASK(width)       ((uint32_t)(~0ULL >> (32U - (width))))
+#define BF_GET(reg, pos, width) \
+    (((reg) >> (pos)) & BF_MASK(width))
+#define BF_SET(reg, pos, width, val) \
+    ((reg) = ((reg) & ~(BF_MASK(width) << (pos))) | \
+             (((val) & BF_MASK(width)) << (pos)))
+
 #define ARRAY_SIZE(a)           (sizeof(a) / sizeof((a)[0]))
 #define MIN(a, b)               (((a) < (b)) ? (a) : (b))
 #define MAX(a, b)               (((a) > (b)) ? (a) : (b))

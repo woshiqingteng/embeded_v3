@@ -1,4 +1,4 @@
-add_library(cmsis_startup OBJECT
+add_library(cmsis_startup STATIC
     startup_stm32f4xx.c
     vector_stm32f4xx.c
     system_stm32f4xx.c

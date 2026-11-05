@@ -8,14 +8,11 @@ target_include_directories(mw_easylogger BEFORE PUBLIC ${BOARD_EASYLOGGER_CONFIG
 target_include_directories(mw_easylogger PUBLIC
     ${TP_EASYLOGGER}/inc
     ${BOARD_PORT_DIR}/easylogger
-    ${BOARD_PORT_DIR}/littlefs
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/mw/littlefs
 )
-target_link_libraries(mw_easylogger PUBLIC
+target_link_libraries(mw_easylogger PRIVATE
     bsp_log
-    bsp_uart
-    mw_littlefs
+    mw_fs
     os_freertos
     drv
 )

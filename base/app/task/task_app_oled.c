@@ -8,6 +8,7 @@
 #include "app_ipc.h"
 #include "app_state.h"
 #include "oled.h"
+#include "bsp_rtc.h"
 
 static char g_rt_buf[512];
 
@@ -43,6 +44,12 @@ static void show_summary(void)
     (void)snprintf(line, sizeof(line), "TICK %lu",
                    (unsigned long)xTaskGetTickCount());
     oled_show_string(0, 48, line, OLED_FONT_6X8);
+
+    {
+        char rtc[24];
+        bsp_rtc_format(rtc, sizeof(rtc));
+        oled_show_string(0, 56, rtc, OLED_FONT_6X8);
+    }
 
     oled_refresh();
 }

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "stm32f4xx_hal.h"
 #include "usbd_core.h"
 #include "usbd_cdc_acm.h"
 #include "usbd_msc.h"

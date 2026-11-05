@@ -1,8 +1,9 @@
 #include "stm32f4xx_hal.h"
 #include "bsp_pwm.h"
+#include "bsp_core_clock.h"
 #include "bsp_log.h"
 
-#define PWM_PERIOD_TICKS 1000U
+#define PWM_FREQ_HZ      1000U
 #define PWM_MAX_DUTY     1000U
 
 static TIM_HandleTypeDef g_htim8;
@@ -24,14 +25,25 @@ static void pwm_gpio_init(void)
 void bsp_pwm_init(void)
 {
     TIM_OC_InitTypeDef oc = {0};
+    uint32_t tim_clk = bsp_clock_apb2_timer_hz();
+    uint32_t psc;
+    uint32_t period;
+
+    if ((tim_clk < 1000000U) || ((tim_clk % 1000000U) != 0U))
+    {
+        BSP_LOGE("pwm", "unsupported TIM8 clock %lu", (unsigned long)tim_clk);
+        return;
+    }
+    psc = (tim_clk / 1000000U) - 1U;
+    period = (1000000U / PWM_FREQ_HZ) - 1U;
 
     __HAL_RCC_TIM8_CLK_ENABLE();
     pwm_gpio_init();
 
     g_htim8.Instance               = TIM8;
-    g_htim8.Init.Prescaler         = 167U; /* 168 MHz / 168 = 1 MHz */
+    g_htim8.Init.Prescaler         = psc;
     g_htim8.Init.CounterMode       = TIM_COUNTERMODE_UP;
-    g_htim8.Init.Period            = PWM_PERIOD_TICKS - 1U;
+    g_htim8.Init.Period            = period;
     g_htim8.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;
     g_htim8.Init.RepetitionCounter = 0U;
     g_htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;

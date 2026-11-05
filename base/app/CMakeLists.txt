@@ -9,6 +9,8 @@ add_executable(firmware
     system/freertos_hooks.c
     system/syscalls.c
     system/shell_commands.c
+    system/storage_manager.c
+    system/usb_bridge.c
     task/task_app_ctrl.c
     task/task_app_adc.c
     task/task_app_oled.c
@@ -25,17 +27,11 @@ target_include_directories(firmware PRIVATE
 )
 
 target_link_libraries(firmware PRIVATE
-    cmsis_startup
-    platform_linker
+    platform
     common
-    os_freertos
-
-    bsp_init
-    mw_easylogger
-    mw_lettershell
-    mw_fatfs
-    mw_littlefs
-    mw_cherryusb
+    os
+    bsp
+    mw
 )
 
 mcu_generate(firmware firmware)
