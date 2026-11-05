@@ -1,4 +1,3 @@
-#include "usbd_core.h"
 #include "mw_usb_bridge.h"
 #include "mw_cherryusb.h"
 #include "storage_manager.h"
@@ -18,11 +17,11 @@ void mw_usb_bridge_poll(void)
 {
     uint8_t event = mw_cherryusb_take_event();
 
-    if (event == USBD_EVENT_CONFIGURED)
+    if (event == MW_USB_EVENT_CONFIGURED)
     {
         mw_cherryusb_msc_set_active(true);
     }
-    else if ((event == USBD_EVENT_RESET) || (event == USBD_EVENT_DISCONNECTED))
+    else if ((event == MW_USB_EVENT_RESET) || (event == MW_USB_EVENT_DISCONNECTED))
     {
         mw_cherryusb_msc_set_active(false);
         storage_usb_event(event);

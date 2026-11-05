@@ -45,8 +45,14 @@ int fs_init(void)
         return -1;
     }
     g_mount_count = 0U;
-    (void)mw_fatfs_init();
-    (void)mw_littlefs_init();
+    if (mw_fatfs_init() != 0)
+    {
+        return -EIO;
+    }
+    if (mw_littlefs_init() != 0)
+    {
+        return -EIO;
+    }
     g_fs_ready = true;
     return 0;
 }
@@ -101,7 +107,7 @@ static fs_mount_t *fs_ref_acquire(const char *path, const char **rel)
         return 0;
     }
     mp = fs_lookup_locked(path, rel);
-    if ((mp != 0) && mp->mounted)
+    if ((mp != 0) && (mp->state == FS_STATE_MOUNTED))
     {
         mp->open_count++;
     }
@@ -130,7 +136,8 @@ int fs_mount(fs_mount_t *mp)
 {
     int ret;
 
-    if ((mp == 0) || (mp->ops == 0) || (mp->ops->mount == 0))
+    if ((mp == 0) || (mp->ops == 0) || (mp->ops->mount == 0) ||
+        (mp->mount_point == 0))
     {
         return -EINVAL;
     }
@@ -148,23 +155,35 @@ int fs_mount(fs_mount_t *mp)
         fs_unlock();
         return -ENOMEM;
     }
-    if (mp->mounted || (fs_lookup_locked(mp->mount_point, 0) != 0))
+    if ((mp->state != FS_STATE_UNMOUNTED) ||
+        (fs_lookup_locked(mp->mount_point, 0) != 0))
     {
         fs_unlock();
         return -EBUSY;
     }
+    mp->state = FS_STATE_MOUNTING;
     fs_unlock();
 
     ret = mp->ops->mount(mp);
-    if (ret != 0)
-    {
-        return ret;
-    }
 
     if (fs_lock() != 0)
     {
+        if (ret == 0)
+        {
+            (void)mp->ops->unmount(mp);
+        }
+        mp->state = FS_STATE_UNMOUNTED;
+        mp->mounted = false;
         return -EIO;
     }
+    if (ret != 0)
+    {
+        mp->state = FS_STATE_UNMOUNTED;
+        fs_unlock();
+        return ret;
+    }
+
+    mp->state = FS_STATE_MOUNTED;
     mp->mounted = true;
     mp->open_count = 0U;
     g_mounts[g_mount_count++] = mp;
@@ -184,28 +203,37 @@ int fs_unmount(fs_mount_t *mp)
     {
         return -EIO;
     }
-    if (!mp->mounted)
+    if (mp->state == FS_STATE_UNMOUNTED)
     {
         fs_unlock();
         return 0;
+    }
+    if (mp->state != FS_STATE_MOUNTED)
+    {
+        fs_unlock();
+        return -EBUSY;
     }
     if (mp->open_count != 0U)
     {
         fs_unlock();
         return -EBUSY;
     }
+    mp->state = FS_STATE_UNMOUNTING;
     fs_unlock();
 
     ret = mp->ops->unmount(mp);
-    if (ret != 0)
-    {
-        return ret;
-    }
 
     if (fs_lock() != 0)
     {
         return -EIO;
     }
+    if (ret != 0)
+    {
+        mp->state = FS_STATE_MOUNTED;
+        fs_unlock();
+        return ret;
+    }
+
     for (size_t i = 0U; i < g_mount_count; i++)
     {
         if (g_mounts[i] == mp)
@@ -218,7 +246,9 @@ int fs_unmount(fs_mount_t *mp)
             break;
         }
     }
+    mp->state = FS_STATE_UNMOUNTED;
     mp->mounted = false;
+    mp->open_count = 0U;
     fs_unlock();
     return 0;
 }
@@ -233,7 +263,7 @@ bool fs_is_mounted(const char *path)
         return false;
     }
     mp = fs_lookup_locked(path, 0);
-    mounted = (mp != 0) && mp->mounted;
+    mounted = (mp != 0) && (mp->state == FS_STATE_MOUNTED);
     fs_unlock();
     return mounted;
 }
@@ -350,6 +380,11 @@ int fs_stat(const char *path, fs_dirent_t *entry)
     {
         return -ENOENT;
     }
+    if (mp->ops->stat == 0)
+    {
+        fs_ref_release(mp);
+        return -ENOSYS;
+    }
     ret = mp->ops->stat(mp, rel, entry);
     fs_ref_release(mp);
     return ret;
@@ -365,6 +400,11 @@ int fs_unlink(const char *path)
     if (mp == 0)
     {
         return -ENOENT;
+    }
+    if (mp->ops->unlink == 0)
+    {
+        fs_ref_release(mp);
+        return -ENOSYS;
     }
     ret = mp->ops->unlink(mp, rel);
     fs_ref_release(mp);
@@ -389,7 +429,9 @@ int fs_rename(const char *old_path, const char *new_path)
     }
     old_mp = fs_lookup_locked(old_path, &old_rel);
     new_mp = fs_lookup_locked(new_path, &new_rel);
-    if ((old_mp == 0) || (new_mp == 0) || !old_mp->mounted || !new_mp->mounted)
+    if ((old_mp == 0) || (new_mp == 0) ||
+        (old_mp->state != FS_STATE_MOUNTED) ||
+        (new_mp->state != FS_STATE_MOUNTED))
     {
         fs_unlock();
         return -ENOENT;
@@ -398,6 +440,11 @@ int fs_rename(const char *old_path, const char *new_path)
     {
         fs_unlock();
         return -EXDEV;
+    }
+    if (old_mp->ops->rename == 0)
+    {
+        fs_unlock();
+        return -ENOSYS;
     }
     old_mp->open_count++;
     fs_unlock();
@@ -417,6 +464,11 @@ int fs_mkdir(const char *path)
     if (mp == 0)
     {
         return -ENOENT;
+    }
+    if (mp->ops->mkdir == 0)
+    {
+        fs_ref_release(mp);
+        return -ENOSYS;
     }
     ret = mp->ops->mkdir(mp, rel);
     fs_ref_release(mp);
@@ -438,6 +490,11 @@ int fs_opendir(fs_dir_t *dp, const char *path)
     {
         return -ENOENT;
     }
+    if (mp->ops->opendir == 0)
+    {
+        fs_ref_release(mp);
+        return -ENOSYS;
+    }
 
     dp->mp = mp;
     dp->priv = 0;
@@ -452,7 +509,8 @@ int fs_opendir(fs_dir_t *dp, const char *path)
 
 int fs_readdir(fs_dir_t *dp, fs_dirent_t *entry)
 {
-    if ((dp == 0) || (dp->mp == 0) || (entry == 0))
+    if ((dp == 0) || (dp->mp == 0) || (entry == 0) ||
+        (dp->mp->ops->readdir == 0))
     {
         return -EINVAL;
     }
@@ -463,7 +521,7 @@ int fs_closedir(fs_dir_t *dp)
 {
     int ret;
 
-    if ((dp == 0) || (dp->mp == 0))
+    if ((dp == 0) || (dp->mp == 0) || (dp->mp->ops->closedir == 0))
     {
         return -EINVAL;
     }
@@ -488,6 +546,11 @@ int fs_statvfs(const char *path, fs_statvfs_t *stat)
     if (mp == 0)
     {
         return -ENOENT;
+    }
+    if (mp->ops->statvfs == 0)
+    {
+        fs_ref_release(mp);
+        return -ENOSYS;
     }
     ret = mp->ops->statvfs(mp, stat);
     fs_ref_release(mp);

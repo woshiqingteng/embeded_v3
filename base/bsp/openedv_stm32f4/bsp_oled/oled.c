@@ -149,17 +149,23 @@ static void oled_show_char(uint8_t x, uint8_t y, uint8_t chr, oled_font_t size)
 
 void oled_refresh(void)
 {
+    oled_lock();
     oled_controller_flush((const uint8_t *)g_oled_gram, OLED_WIDTH_PX, OLED_PAGE_COUNT);
+    oled_unlock();
 }
 
 void oled_display_on(void)
 {
+    oled_lock();
     oled_controller_display_on();
+    oled_unlock();
 }
 
 void oled_display_off(void)
 {
+    oled_lock();
     oled_controller_display_off();
+    oled_unlock();
 }
 
 void oled_clear(void)
@@ -167,6 +173,7 @@ void oled_clear(void)
     uint8_t page;
     uint8_t col;
 
+    oled_lock();
     for (page = 0; page < OLED_PAGE_COUNT; page++)
     {
         for (col = 0; col < OLED_WIDTH_PX; col++)
@@ -176,12 +183,14 @@ void oled_clear(void)
     }
 
     oled_refresh();
+    oled_unlock();
 }
 
 void oled_show_string(uint8_t x, uint8_t y, const char *str, oled_font_t size)
 {
     uint8_t width = oled_char_width(size);
 
+    oled_lock();
     while ((*str >= (char)OLED_ASCII_FIRST) && (*str <= (char)OLED_ASCII_LAST))
     {
         if (x > (uint8_t)(OLED_WIDTH_PX - width))
@@ -201,6 +210,7 @@ void oled_show_string(uint8_t x, uint8_t y, const char *str, oled_font_t size)
         x = (uint8_t)(x + width);
         str++;
     }
+    oled_unlock();
 }
 
 void oled_lock(void)

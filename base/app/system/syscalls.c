@@ -9,6 +9,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "cmsis_compiler.h"
+
 /* Stack kept free below _estack so the heap cannot collide with the MSP. */
 #define SYS_MIN_STACK_SIZE 0x800U
 
@@ -83,22 +85,44 @@ int _kill(int pid, int sig)
 void *_sbrk(ptrdiff_t incr)
 {
     static uint8_t *heap_end = NULL;
-    uint8_t       *prev;
+    static uint8_t *heap_base = NULL;
+    uintptr_t limit = (uintptr_t)&_estack - SYS_MIN_STACK_SIZE;
+    uintptr_t next;
+    uint8_t  *prev;
+    uint32_t primask;
 
-    if (heap_end == NULL)
+    primask = __get_PRIMASK();
+    __disable_irq();
+
+    if (heap_base == NULL)
     {
-        heap_end = &_end;
+        heap_base = (uint8_t *)(((uintptr_t)&_end + 7U) & ~7U);
+        heap_end = heap_base;
     }
 
-    if ((uintptr_t)(heap_end + incr) > ((uintptr_t)&_estack - SYS_MIN_STACK_SIZE))
+    if (incr < 0)
     {
-        errno = ENOMEM;
-        return (void *)-1;
+        if ((uintptr_t)heap_end + (uintptr_t)incr < (uintptr_t)heap_base)
+        {
+            __set_PRIMASK(primask);
+            errno = ENOMEM;
+            return (void *)-1;
+        }
+    }
+    else
+    {
+        next = (uintptr_t)heap_end + (uintptr_t)incr;
+        if ((next < (uintptr_t)heap_end) || (next > limit))
+        {
+            __set_PRIMASK(primask);
+            errno = ENOMEM;
+            return (void *)-1;
+        }
     }
 
     prev = heap_end;
-    heap_end += (ptrdiff_t)incr;
-
+    heap_end = (uint8_t *)((uintptr_t)heap_end + incr);
+    __set_PRIMASK(primask);
     return prev;
 }
 

@@ -29,6 +29,38 @@ void HAL_RTC_MspDeInit(RTC_HandleTypeDef *hrtc)
     __HAL_RCC_RTC_DISABLE();
 }
 
+static bool rtc_is_leap(uint16_t y)
+{
+    return ((y % 4U) == 0U) &&
+           (((y % 100U) != 0U) || ((y % 400U) == 0U));
+}
+
+static uint8_t rtc_days_in_month(uint16_t y, uint8_t m)
+{
+    static const uint8_t days[] = { 31U, 28U, 31U, 30U, 31U, 30U,
+                                    31U, 31U, 30U, 31U, 30U, 31U };
+
+    if ((m < 1U) || (m > 12U))
+    {
+        return 0U;
+    }
+    if ((m == 2U) && rtc_is_leap(y))
+    {
+        return 29U;
+    }
+    return days[m - 1U];
+}
+
+static bool rtc_datetime_valid(const bsp_rtc_datetime_t *dt)
+{
+    return (dt != 0) &&
+           (dt->year >= 2000U) && (dt->year <= 2099U) &&
+           (dt->month >= 1U) && (dt->month <= 12U) &&
+           (dt->date >= 1U) &&
+           (dt->date <= rtc_days_in_month(dt->year, dt->month)) &&
+           (dt->hour < 24U) && (dt->minute < 60U) && (dt->second < 60U);
+}
+
 static uint8_t rtc_weekday(uint16_t y, uint8_t m, uint8_t d)
 {
     static const uint8_t t[] = { 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
@@ -186,7 +218,7 @@ int bsp_rtc_set_datetime(const bsp_rtc_datetime_t *dt)
     RTC_DateTypeDef date = {0};
     int ret = -1;
 
-    if ((dt == 0) || !g_rtc_ready || (rtc_lock() != 0))
+    if (!rtc_datetime_valid(dt) || !g_rtc_ready || (rtc_lock() != 0))
     {
         return -1;
     }

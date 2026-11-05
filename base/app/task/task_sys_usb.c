@@ -6,7 +6,6 @@
 #include "app_state.h"
 #include "mw_usb_bridge.h"
 #include "mw_cherryusb.h"
-#include "usbd_core.h"
 #include "rb.h"
 
 static uint8_t  g_cdc_mem[512];
@@ -26,18 +25,20 @@ void task_usb(void *arg)
 
     rb_init(&g_cdc_rb, g_cdc_mem, sizeof(g_cdc_mem));
     mw_cherryusb_set_cdc_rx_cb(usb_cdc_rx);
+    app_wdg_kick(WDG_BIT_USB);
 
     if (mw_usb_bridge_init() == 0)
     {
         init_done = true;
     }
+    app_wdg_kick(WDG_BIT_USB);
 
     for (;;)
     {
         if (init_done)
         {
             mw_usb_bridge_poll();
-            app_state_set_usb(usb_device_is_configured(0));
+            app_state_set_usb(mw_cherryusb_is_configured());
 
             uint32_t n = rb_get(&g_cdc_rb, buf, sizeof(buf));
             if (n > 0U)

@@ -1,5 +1,7 @@
 # STM32F429 openedv 单工程多任务固件计划与验收记录
 
+> 说明：第 1~28 节为历史记录，其中部分描述（mw_fs、静态 Shell 命令表、IWDG 4 s、SDIO 默认阻塞等）已过时；当前实现与最新修复见第 29 节。
+
 ## 1. 目标
 在 `D:/work/embeded_v3/base` 中实现一个面向 `openedv_stm32f4` 的单工程多任务固件，采用分层架构，使用 STM32 HAL、FreeRTOS、FatFs、LittleFS、EasyLogger、letter-shell、CherryUSB，并完成构建与 HIL 验收。
 
@@ -541,3 +543,41 @@ SDIO DMA 已修复并启用；当前 `sd dma on` 自检通过，单块/多块 DM
 - `sd dma on`、`sd test 0 8` 回归通过
 - Debug/Release 构建通过，无自有代码警告
 - 当前 Release 固件约 359 KB，低于 768 KB 应用上限
+
+## 29. 架构/可靠性修复（2026-11-06）
+
+### 启动期
+- `bsp_log_init()` 只初始化环形缓冲，新增 `bsp_log_start()` 在调度器运行后创建互斥量。
+- `bsp_uart_init()` 只初始化硬件/环形缓冲，新增 `bsp_uart_start()` 在调度器运行后创建 TX 互斥量。
+- `elog_port_init()` 不再在调度器启动前创建递归锁，新增 `elog_port_start()`；由 `mw_log_start()` 在 `task_system` 中调用。
+- 避免 FreeRTOS 11.3.3 的 `uxCriticalNesting=0xaaaaaaaa` 在启动前进入临界区导致 HAL tick 被屏蔽。
+
+### 看门狗
+- `fs cat`、`fs ls` 每轮输出后刷新 `WDG_BIT_SHELL`。
+- `log fill` 增加进度回调，每 4 KiB 刷新 Shell 心跳并让出 CPU。
+- `task_usb` 初始化前后刷新 USB 心跳。
+
+### FS/存储
+- `fs_logfs` 所有 EasyFlash 访问路径统一加锁；修复根目录重复枚举 `app.log`；`fs rm` 在日志写入打开时返回 `-EBUSY`。
+- `fs_mount_t` 增加 `UNMOUNTED/MOUNTING/MOUNTED/UNMOUNTING` 状态，修复 mount/unmount 与 open 的竞态。
+- `fs_init()` 检查 FatFs/LittleFS 初始化返回值。
+- `storage_manager` 的挂载/MSC 切换在存储锁内完成，状态读取加锁。
+- `bsp_sd` 增加初始化、LBA 范围、空互斥量检查。
+
+### USB/RTC/其他
+- USB 事件读取与 CDC TX busy 标志加入临界区；新增 `mw_cherryusb_is_configured()`，app 不再直接包含 `usbd_core.h`。
+- RTC 增加日期合法性校验；LSE 启动超时从 5 s 降为 2 s。
+- `_sbrk()` 增加临界区、负增量和堆边界检查。
+- `app_init()`/`create_system_tasks()` 失败时回滚已创建任务。
+- Shell 任务列表缓冲区从 512 提升到 1024；OLED 运行时统计缓冲区提升到 1024。
+- Shell `fs mv` 自动拼接当前挂载点；OLED 公共 API 统一使用递归锁；`wdg` 文案更新为约 8 s。
+
+### HIL 复测
+- 冷启动/复位后 Shell、RTC、FS、USB 正常。
+- `fs ls /flash:` 仅显示 `log`；`fs ls /flash:/log` 显示 `app.log`。
+- `fs cat` 长日志输出不触发 IWDG；`log fill 300` 不触发复位。
+- `fs rm /flash:/log/app.log` 在日志写入打开时返回 `-EBUSY`。
+- `/nor:` 卸载/重新挂载正常；`/flash:` 因日志文件打开返回 `-EBUSY`。
+- RTC 非法日期（2026-02-29）返回 `-1`；合法闰日 2024-02-29 设置成功。
+- `sd dma on`/`sd test` 在 DMA 模式下正常；阻塞模式多块读偶发失败，需继续观察 SD 卡/主机并发。
+- Debug/Release 构建通过，无自有代码警告。

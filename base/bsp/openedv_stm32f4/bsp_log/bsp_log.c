@@ -21,11 +21,19 @@ static volatile uint8_t  g_log_ready;
 void bsp_log_init(void)
 {
     rb_init(&g_log_rb, g_log_mem, BSP_LOG_RING_SIZE);
-    g_log_mutex = xSemaphoreCreateMutex();
+    g_log_mutex = 0;
     g_dropped = 0U;
     g_console_sink = 0;
     g_file_sink = 0;
     g_log_ready = 1U;
+}
+
+void bsp_log_start(void)
+{
+    if (g_log_mutex == 0)
+    {
+        g_log_mutex = xSemaphoreCreateMutex();
+    }
 }
 
 void bsp_log_attach_console(bsp_log_sink_t sink)
@@ -47,8 +55,18 @@ void bsp_log_write(const uint8_t *data, uint32_t len)
         return;
     }
 
-    if ((g_log_mutex == 0) ||
-        (xSemaphoreTake(g_log_mutex, 0U) != pdTRUE))
+    if (g_log_mutex == 0)
+    {
+        /* Scheduler not started yet: boot code is single-threaded. */
+        put = rb_put(&g_log_rb, data, len);
+        if (put < len)
+        {
+            g_dropped += (len - put);
+        }
+        return;
+    }
+
+    if (xSemaphoreTake(g_log_mutex, 0U) != pdTRUE)
     {
         g_dropped += len;
         return;

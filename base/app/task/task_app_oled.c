@@ -10,7 +10,7 @@
 #include "oled.h"
 #include "bsp_rtc.h"
 
-static char g_rt_buf[512];
+static char g_rt_buf[1024];
 
 static void show_summary(void)
 {

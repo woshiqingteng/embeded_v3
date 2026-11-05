@@ -6,7 +6,7 @@
 #include "storage_manager.h"
 #include "fs.h"
 #include "bsp_sd.h"
-#include "usbd_core.h"
+#include "mw_cherryusb.h"
 
 static SemaphoreHandle_t g_lock;
 static storage_state_t   g_state = STORAGE_STATE_UNINIT;
@@ -47,12 +47,19 @@ int storage_init(void)
 
 storage_state_t storage_state(void)
 {
-    return g_state;
+    storage_state_t state = STORAGE_STATE_UNINIT;
+
+    if ((g_lock != 0) && (xSemaphoreTake(g_lock, portMAX_DELAY) == pdTRUE))
+    {
+        state = g_state;
+        (void)xSemaphoreGive(g_lock);
+    }
+    return state;
 }
 
 const char *storage_state_name(void)
 {
-    switch (g_state)
+    switch (storage_state())
     {
         case STORAGE_STATE_UNINIT:       return "uninit";
         case STORAGE_STATE_IDLE:         return "idle";
@@ -68,10 +75,36 @@ int storage_fatfs_mount(void)
 {
     int ret;
 
-    if (fs_is_mounted(FS_MOUNT_SD))
+    if (storage_lock() != 0)
     {
+        return -1;
+    }
+    if ((g_state == STORAGE_STATE_MSC) ||
+        (g_state == STORAGE_STATE_MSC_READONLY) ||
+        (g_state == STORAGE_STATE_ERROR))
+    {
+        storage_unlock();
+        return -1;
+    }
+    if (g_state == STORAGE_STATE_FATFS)
+    {
+        storage_unlock();
         return 0;
     }
+
+    ret = fs_mount(fs_fatfs_mount_obj());
+    if ((ret == 0) || (ret == -EBUSY && fs_is_mounted(FS_MOUNT_SD)))
+    {
+        g_state = STORAGE_STATE_FATFS;
+        ret = 0;
+    }
+    storage_unlock();
+    return ret;
+}
+
+int storage_fatfs_umount(void)
+{
+    int ret;
 
     if (storage_lock() != 0)
     {
@@ -83,36 +116,13 @@ int storage_fatfs_mount(void)
         storage_unlock();
         return -1;
     }
-    storage_unlock();
-
-    ret = fs_mount(fs_fatfs_mount_obj());
-    if (ret == 0)
-    {
-        if (storage_lock() == 0)
-        {
-            g_state = STORAGE_STATE_FATFS;
-            storage_unlock();
-        }
-    }
-    return ret;
-}
-
-int storage_fatfs_umount(void)
-{
-    int ret;
 
     ret = fs_unmount(fs_fatfs_mount_obj());
     if ((ret == 0) || (ret == -ENOENT))
     {
-        if (storage_lock() == 0)
-        {
-            if (g_state == STORAGE_STATE_FATFS)
-            {
-                g_state = STORAGE_STATE_IDLE;
-            }
-            storage_unlock();
-        }
+        g_state = STORAGE_STATE_IDLE;
     }
+    storage_unlock();
     return ret;
 }
 
@@ -130,37 +140,34 @@ int storage_msc_begin(void)
         storage_unlock();
         return 0;
     }
-    storage_unlock();
+    if (g_state == STORAGE_STATE_ERROR)
+    {
+        storage_unlock();
+        return -1;
+    }
 
-    if (g_state == STORAGE_STATE_FATFS)
+    if ((g_state == STORAGE_STATE_FATFS) ||
+        ((g_state == STORAGE_STATE_IDLE) && fs_is_mounted(FS_MOUNT_SD)))
     {
         ret = fs_unmount(fs_fatfs_mount_obj());
         if ((ret != 0) && (ret != -ENOENT))
         {
-            if (storage_lock() == 0)
-            {
-                g_state = STORAGE_STATE_ERROR;
-                storage_unlock();
-            }
+            g_state = STORAGE_STATE_ERROR;
+            storage_unlock();
             return -1;
         }
+        g_state = STORAGE_STATE_IDLE;
     }
 
     if (bsp_sd_acquire(BSP_SD_OWNER_MSC, 1000U) != 0)
     {
-        if (storage_lock() == 0)
-        {
-            g_state = STORAGE_STATE_ERROR;
-            storage_unlock();
-        }
+        g_state = STORAGE_STATE_ERROR;
+        storage_unlock();
         return -1;
     }
 
-    if (storage_lock() == 0)
-    {
-        g_state = bsp_sd_is_writable() ? STORAGE_STATE_MSC : STORAGE_STATE_MSC_READONLY;
-        storage_unlock();
-    }
+    g_state = bsp_sd_is_writable() ? STORAGE_STATE_MSC : STORAGE_STATE_MSC_READONLY;
+    storage_unlock();
     return 0;
 }
 
@@ -180,7 +187,7 @@ void storage_msc_end(void)
 
 void storage_usb_event(uint8_t event)
 {
-    if ((event == USBD_EVENT_RESET) || (event == USBD_EVENT_DISCONNECTED))
+    if ((event == MW_USB_EVENT_RESET) || (event == MW_USB_EVENT_DISCONNECTED))
     {
         storage_msc_end();
     }

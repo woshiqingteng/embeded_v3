@@ -26,6 +26,19 @@ static bsp_sd_owner_t    g_owner = BSP_SD_OWNER_NONE;
 static bsp_sd_io_hook_t  g_io_hook;
 static uint8_t           g_ready;
 
+extern HAL_SD_CardInfoTypeDef g_sd_card_info_handle;
+
+static bool bsp_sd_range_valid(uint32_t lba, uint32_t count)
+{
+    uint32_t blocks = g_sd_card_info_handle.LogBlockNbr;
+
+    if ((blocks == 0U) || (count == 0U) || (lba >= blocks))
+    {
+        return false;
+    }
+    return (count <= (blocks - lba));
+}
+
 int bsp_sd_init(void)
 {
     if (g_ready != 0U)
@@ -36,6 +49,10 @@ int bsp_sd_init(void)
     if (g_sd_mutex == 0)
     {
         g_sd_mutex = xSemaphoreCreateMutex();
+    }
+    if (g_sd_mutex == 0)
+    {
+        return -1;
     }
 
     g_ready = (sdio_init() == 0U) ? 1U : 0U;
@@ -73,7 +90,7 @@ int bsp_sd_acquire(bsp_sd_owner_t owner, uint32_t timeout_ms)
 {
     TickType_t ticks = (timeout_ms == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
 
-    if (g_sd_mutex == 0)
+    if ((g_sd_mutex == 0) || (g_ready == 0U))
     {
         return -1;
     }
@@ -137,7 +154,7 @@ int bsp_sd_set_dma_enabled(bool enable)
 {
     int ret;
 
-    if ((g_sd_mutex == 0) ||
+    if ((g_sd_mutex == 0) || (g_ready == 0U) ||
         (xSemaphoreTake(g_sd_mutex, pdMS_TO_TICKS(1000U)) != pdTRUE))
     {
         return -1;
@@ -175,7 +192,8 @@ int bsp_sd_read(uint8_t *buf, uint32_t lba, uint32_t count)
 {
     int ret = -1;
 
-    if ((buf == 0) || (count == 0U))
+    if ((buf == 0) || (g_sd_mutex == 0) || (g_ready == 0U) ||
+        !bsp_sd_range_valid(lba, count))
     {
         return -1;
     }
@@ -204,7 +222,8 @@ int bsp_sd_read(uint8_t *buf, uint32_t lba, uint32_t count)
 
 int bsp_sd_write(const uint8_t *buf, uint32_t lba, uint32_t count)
 {
-    if ((buf == 0) || (count == 0U))
+    if ((buf == 0) || (g_sd_mutex == 0) || (g_ready == 0U) ||
+        !bsp_sd_range_valid(lba, count))
     {
         return -1;
     }

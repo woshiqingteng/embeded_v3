@@ -12,6 +12,7 @@ typedef enum
 } bsp_uart_t;
 
 int bsp_uart_init(void);
+void bsp_uart_start(void);
 
 uint32_t bsp_uart_get_baud(bsp_uart_t id);
 

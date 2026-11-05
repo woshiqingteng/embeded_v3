@@ -168,7 +168,7 @@ int bsp_uart_init(void)
         rb_init(&g_tx_rb[id], g_tx_mem[id], UART_TX_RING_SIZE);
         rb_init(&g_rx_rb[id], g_rx_mem[id], UART_RX_RING_SIZE);
         g_tx_busy[id] = false;
-        g_tx_mutex[id] = xSemaphoreCreateMutex();
+        g_tx_mutex[id] = 0;
 
         g_uart[id].Instance          = hw->instance;
         g_uart[id].Init.BaudRate     = 115200U;
@@ -206,6 +206,17 @@ int bsp_uart_init(void)
     return ret;
 }
 
+void bsp_uart_start(void)
+{
+    for (uint8_t id = 0U; id < BSP_UART_NUM; id++)
+    {
+        if (g_tx_mutex[id] == 0)
+        {
+            g_tx_mutex[id] = xSemaphoreCreateMutex();
+        }
+    }
+}
+
 uint32_t bsp_uart_get_baud(bsp_uart_t id)
 {
     return (id < BSP_UART_NUM) ? g_uart[id].Init.BaudRate : 0U;
@@ -226,14 +237,12 @@ uint32_t bsp_uart_write(bsp_uart_t id, const uint8_t *data, uint32_t len,
     has_sched = (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) ? pdTRUE : pdFALSE;
     timeout = (timeout_ms == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
 
-    if (g_tx_mutex[id] == 0)
+    if (g_tx_mutex[id] != 0)
     {
-        return 0U;
-    }
-
-    if (xSemaphoreTake(g_tx_mutex[id], has_sched ? timeout : 0U) != pdTRUE)
-    {
-        return 0U;
+        if (xSemaphoreTake(g_tx_mutex[id], has_sched ? timeout : 0U) != pdTRUE)
+        {
+            return 0U;
+        }
     }
 
     while (written < len)
@@ -262,7 +271,10 @@ uint32_t bsp_uart_write(bsp_uart_t id, const uint8_t *data, uint32_t len,
         uart_tx_kick((uint8_t)id);
     }
 
-    (void)xSemaphoreGive(g_tx_mutex[id]);
+    if (g_tx_mutex[id] != 0)
+    {
+        (void)xSemaphoreGive(g_tx_mutex[id]);
+    }
     return written;
 }
 

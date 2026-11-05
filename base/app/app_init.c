@@ -29,6 +29,8 @@ int app_init(void)
     if (xTaskCreate(task_adc, "adc", STACK_ADC, 0, 4, &g_app_ipc.task_adc) != pdPASS)
     {
         elog_error("app", "adc create failed");
+        vTaskDelete(g_app_ipc.task_ctrl);
+        g_app_ipc.task_ctrl = 0;
         return -1;
     }
     elog_info("app", "adc stack=%u words prio=4", (unsigned)STACK_ADC);
@@ -36,6 +38,10 @@ int app_init(void)
     if (xTaskCreate(task_oled, "oled", STACK_OLED, 0, 2, &g_app_ipc.task_oled) != pdPASS)
     {
         elog_error("app", "oled create failed");
+        vTaskDelete(g_app_ipc.task_adc);
+        vTaskDelete(g_app_ipc.task_ctrl);
+        g_app_ipc.task_adc = 0;
+        g_app_ipc.task_ctrl = 0;
         return -1;
     }
     elog_info("app", "oled stack=%u words prio=2", (unsigned)STACK_OLED);

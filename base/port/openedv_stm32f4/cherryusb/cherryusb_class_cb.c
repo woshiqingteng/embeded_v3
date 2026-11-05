@@ -4,6 +4,8 @@
 #include <string.h>
 
 #include "stm32f4xx_hal.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include "usbd_core.h"
 #include "usbd_cdc_acm.h"
 #include "usbd_msc.h"
@@ -179,9 +181,27 @@ void mw_cherryusb_set_cdc_rx_cb(mw_cherryusb_cdc_rx_cb_t cb)
 
 uint8_t mw_cherryusb_take_event(void)
 {
-    uint8_t event = g_event;
+    uint8_t raw;
+    uint8_t event = MW_USB_EVENT_NONE;
+
+    taskENTER_CRITICAL();
+    raw = g_event;
     g_event = 0U;
+    taskEXIT_CRITICAL();
+
+    switch (raw)
+    {
+        case USBD_EVENT_CONFIGURED:  event = MW_USB_EVENT_CONFIGURED; break;
+        case USBD_EVENT_RESET:       event = MW_USB_EVENT_RESET; break;
+        case USBD_EVENT_DISCONNECTED:event = MW_USB_EVENT_DISCONNECTED; break;
+        default:                     event = MW_USB_EVENT_NONE; break;
+    }
     return event;
+}
+
+bool mw_cherryusb_is_configured(void)
+{
+    return usb_device_is_configured(0);
 }
 
 void mw_cherryusb_msc_set_active(bool active)
@@ -191,18 +211,26 @@ void mw_cherryusb_msc_set_active(bool active)
 
 bool mw_cherryusb_cdc_write(const uint8_t *data, uint32_t len)
 {
-    if (g_cdc_tx_busy || (data == 0) || (len == 0U) || (len > sizeof(g_cdc_tx_buf)))
+    bool ok = false;
+
+    if ((data == 0) || (len == 0U) || (len > sizeof(g_cdc_tx_buf)))
     {
         return false;
     }
-    memcpy(g_cdc_tx_buf, data, len);
-    g_cdc_tx_busy = true;
-    if (usbd_ep_start_write(0, CDC_IN_EP, g_cdc_tx_buf, len) != 0)
+
+    taskENTER_CRITICAL();
+    if (!g_cdc_tx_busy)
     {
-        g_cdc_tx_busy = false;
-        return false;
+        memcpy(g_cdc_tx_buf, data, len);
+        g_cdc_tx_busy = true;
+        ok = (usbd_ep_start_write(0, CDC_IN_EP, g_cdc_tx_buf, len) == 0);
+        if (!ok)
+        {
+            g_cdc_tx_busy = false;
+        }
     }
-    return true;
+    taskEXIT_CRITICAL();
+    return ok;
 }
 
 int mw_cherryusb_init(void)

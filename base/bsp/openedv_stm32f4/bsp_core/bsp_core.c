@@ -52,6 +52,20 @@ static HAL_StatusTypeDef board_clock_init(void)
     return HAL_OK;
 }
 
+uint32_t bsp_core_uptime_ms(void)
+{
+    return HAL_GetTick();
+}
+
+void bsp_core_get_clock_mhz(uint32_t *sysclk, uint32_t *hclk,
+                            uint32_t *pclk1, uint32_t *pclk2)
+{
+    if (sysclk != 0) *sysclk = HAL_RCC_GetSysClockFreq() / 1000000U;
+    if (hclk != 0)   *hclk = HAL_RCC_GetHCLKFreq() / 1000000U;
+    if (pclk1 != 0)  *pclk1 = HAL_RCC_GetPCLK1Freq() / 1000000U;
+    if (pclk2 != 0)  *pclk2 = HAL_RCC_GetPCLK2Freq() / 1000000U;
+}
+
 int bsp_core_init(void)
 {
     HAL_StatusTypeDef status;

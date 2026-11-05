@@ -11,8 +11,16 @@ static SemaphoreHandle_t g_elog_lock;
 
 ElogErrCode elog_port_init(void)
 {
-    g_elog_lock = xSemaphoreCreateRecursiveMutex();
+    g_elog_lock = 0;
     return ELOG_NO_ERR;
+}
+
+void elog_port_start(void)
+{
+    if (g_elog_lock == 0)
+    {
+        g_elog_lock = xSemaphoreCreateRecursiveMutex();
+    }
 }
 
 void elog_port_deinit(void)

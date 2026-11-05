@@ -25,13 +25,22 @@ struct fs_ops
     int     (*statvfs)(fs_mount_t *mp, fs_statvfs_t *stat);
 };
 
+typedef enum
+{
+    FS_STATE_UNMOUNTED = 0,
+    FS_STATE_MOUNTING,
+    FS_STATE_MOUNTED,
+    FS_STATE_UNMOUNTING
+} fs_mount_state_t;
+
 struct fs_mount
 {
-    const char        *mount_point;
+    const char          *mount_point;
     const struct fs_ops *ops;
-    void              *ctx;
-    bool               mounted;
-    uint32_t           open_count;
+    void                *ctx;
+    fs_mount_state_t     state;
+    bool                 mounted;
+    uint32_t             open_count;
 };
 
 #endif /* MW_FS_BACKEND_H */

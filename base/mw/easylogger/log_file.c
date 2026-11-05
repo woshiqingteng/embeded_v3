@@ -1,6 +1,9 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include "fs.h"
 #include "mw_log.h"
 #include "bsp_log.h"
@@ -11,6 +14,7 @@
 static fs_file_t        g_file;
 static volatile int     g_open;
 static uint32_t         g_since_sync;
+static void           (*g_progress_cb)(void);
 
 static int log_open_append(void)
 {
@@ -47,6 +51,18 @@ static void log_sink(const uint8_t *data, uint32_t len)
     }
 }
 
+void mw_log_start(void)
+{
+    extern void elog_port_start(void);
+
+    elog_port_start();
+}
+
+void mw_log_set_progress_cb(void (*cb)(void))
+{
+    g_progress_cb = cb;
+}
+
 int mw_log_fill(uint32_t bytes)
 {
     static const char line[] =
@@ -73,6 +89,12 @@ int mw_log_fill(uint32_t bytes)
             return -1;
         }
         written += (uint32_t)ret;
+
+        if ((g_progress_cb != 0) && ((written % 4096U) < n))
+        {
+            g_progress_cb();
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
     }
     (void)fs_sync(&g_file);
     return 0;

@@ -5,11 +5,11 @@
 #include "shell.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "stm32f4xx_hal.h"
 
 #include "app_ipc.h"
 #include "app_state.h"
 #include "bsp_adc.h"
+#include "bsp_core.h"
 #include "oled.h"
 #include "bsp_pwm.h"
 #include "bsp_led.h"
@@ -240,11 +240,15 @@ static int cmd_clock(int argc, char *argv[])
     Shell *sh = shellGetCurrent();
     (void)argc;
     (void)argv;
+    uint32_t sysclk;
+    uint32_t hclk;
+    uint32_t pclk1;
+    uint32_t pclk2;
+
+    bsp_core_get_clock_mhz(&sysclk, &hclk, &pclk1, &pclk2);
     shellPrint(sh, "sysclk=%lu MHz hclk=%lu MHz pclk1=%lu MHz pclk2=%lu MHz",
-               (unsigned long)(HAL_RCC_GetSysClockFreq() / 1000000U),
-               (unsigned long)(HAL_RCC_GetHCLKFreq() / 1000000U),
-               (unsigned long)(HAL_RCC_GetPCLK1Freq() / 1000000U),
-               (unsigned long)(HAL_RCC_GetPCLK2Freq() / 1000000U));
+               (unsigned long)sysclk, (unsigned long)hclk,
+               (unsigned long)pclk1, (unsigned long)pclk2);
     (void)shellWriteString(sh, s_nl);
     return 0;
 }
@@ -254,7 +258,7 @@ static int cmd_uptime(int argc, char *argv[])
     Shell *sh = shellGetCurrent();
     (void)argc;
     (void)argv;
-    shellPrint(sh, "tick=%lu ms", (unsigned long)HAL_GetTick());
+    shellPrint(sh, "tick=%lu ms", (unsigned long)bsp_core_uptime_ms());
     (void)shellWriteString(sh, s_nl);
     return 0;
 }
@@ -275,7 +279,7 @@ static int cmd_heap(int argc, char *argv[])
 static int cmd_tasks(int argc, char *argv[])
 {
     Shell *sh = shellGetCurrent();
-    char buf[512];
+    static char buf[1024];
 
     (void)argc;
     (void)argv;
@@ -408,6 +412,19 @@ static void fs_join(const char *mount, const char *path, char *out, size_t size)
     }
 }
 
+static const char *fs_path_mount(const char *path)
+{
+    if ((path != 0) && (strncmp(path, FS_MOUNT_NOR, strlen(FS_MOUNT_NOR)) == 0))
+    {
+        return FS_MOUNT_NOR;
+    }
+    if ((path != 0) && (strncmp(path, FS_MOUNT_SD, strlen(FS_MOUNT_SD)) == 0))
+    {
+        return FS_MOUNT_SD;
+    }
+    return FS_MOUNT_FLASH;
+}
+
 static int fs_do_ls(Shell *sh, const char *path)
 {
     fs_dir_t    dir;
@@ -433,6 +450,7 @@ static int fs_do_ls(Shell *sh, const char *path)
                    (unsigned long)entry.size,
                    entry.name);
         shell_newline(sh);
+        app_wdg_kick(WDG_BIT_SHELL);
     }
     (void)fs_closedir(&dir);
     return (ret == 1) ? 0 : ret;
@@ -456,6 +474,7 @@ static int fs_do_cat(Shell *sh, const char *path)
     {
         buf[n] = '\0';
         (void)shellWriteString(sh, buf);
+        app_wdg_kick(WDG_BIT_SHELL);
     }
     (void)fs_close(&fp);
     if (n < 0)
@@ -612,7 +631,10 @@ static int cmd_fs(int argc, char *argv[])
     {
         if (argc > 3)
         {
-            ret = fs_rename(path, argv[3]);
+            char new_path[160];
+
+            fs_join(fs_path_mount(path), argv[3], new_path, sizeof(new_path));
+            ret = fs_rename(path, new_path);
         }
         else
         {
@@ -845,13 +867,18 @@ static int cmd_rtc(int argc, char *argv[])
     return 0;
 }
 
+static void log_fill_progress(void)
+{
+    app_wdg_kick(WDG_BIT_SHELL);
+}
+
 static int cmd_log(int argc, char *argv[])
 {
     Shell *sh = shellGetCurrent();
 
     if ((argc < 2) || (strcmp(argv[1], "test") == 0))
     {
-        elog_info("shell", "log test tick=%lu", (unsigned long)HAL_GetTick());
+        elog_info("shell", "log test tick=%lu", (unsigned long)bsp_core_uptime_ms());
         return 0;
     }
 
@@ -859,7 +886,9 @@ static int cmd_log(int argc, char *argv[])
     {
         uint32_t kb = (argc > 2) ? (uint32_t)atoi(argv[2]) : 300U;
 
+        mw_log_set_progress_cb(log_fill_progress);
         shellPrint(sh, "log fill ret=%d", mw_log_fill(kb * 1024U));
+        mw_log_set_progress_cb(0);
         shell_newline(sh);
         return 0;
     }
@@ -901,7 +930,7 @@ static int cmd_log(int argc, char *argv[])
     {
         shellPrint(sh, "log dropped=%lu B tick=%lu ms",
                    (unsigned long)bsp_log_dropped(),
-                   (unsigned long)HAL_GetTick());
+                   (unsigned long)bsp_core_uptime_ms());
         (void)shellWriteString(sh, s_nl);
         return 0;
     }
@@ -931,7 +960,7 @@ static int cmd_wdg(int argc, char *argv[])
     Shell *sh = shellGetCurrent();
     (void)argc;
     (void)argv;
-    shellPrint(sh, "iwdg ~4s heartbeats=0x%02lx", (unsigned long)WDG_BIT_ALL);
+    shellPrint(sh, "iwdg ~8s heartbeats=0x%02lx", (unsigned long)WDG_BIT_ALL);
     (void)shellWriteString(sh, s_nl);
     return 0;
 }

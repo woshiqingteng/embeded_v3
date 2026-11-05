@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -143,6 +144,10 @@ static ssize_t logfs_read(fs_file_t *fp, void *buf, size_t size)
     {
         return 0;
     }
+    if ((fp->flags & FS_O_READ) == 0U)
+    {
+        return -EBADF;
+    }
     if (logfs_lock() != 0)
     {
         return -EIO;
@@ -194,10 +199,13 @@ static ssize_t logfs_write(fs_file_t *fp, const void *buf, size_t size)
     const uint8_t *src = (const uint8_t *)buf;
     size_t written = 0U;
 
-    (void)fp;
     if ((buf == 0) || (size == 0U))
     {
         return 0;
+    }
+    if ((fp->flags & FS_O_WRITE) == 0U)
+    {
+        return -EBADF;
     }
     if (logfs_lock() != 0)
     {
@@ -237,18 +245,25 @@ static off_t logfs_seek(fs_file_t *fp, off_t off, int whence)
 {
     off_t base;
     off_t target;
-    off_t used = (off_t)ef_log_get_used_size();
+    off_t used;
 
     if (fp == 0)
     {
         return -EINVAL;
     }
+    if (logfs_lock() != 0)
+    {
+        return -EIO;
+    }
+    used = (off_t)ef_log_get_used_size();
     switch (whence)
     {
         case SEEK_SET: base = 0; break;
         case SEEK_CUR: base = (off_t)(uintptr_t)fp->priv; break;
         case SEEK_END: base = used; break;
-        default: return -EINVAL;
+        default:
+            logfs_unlock();
+            return -EINVAL;
     }
     target = base + off;
     if (target < 0)
@@ -260,6 +275,7 @@ static off_t logfs_seek(fs_file_t *fp, off_t off, int whence)
         target = used;
     }
     fp->priv = (void *)(uintptr_t)target;
+    logfs_unlock();
     return target;
 }
 
@@ -293,15 +309,22 @@ static int logfs_stat(fs_mount_t *mp, const char *path, fs_dirent_t *entry)
     (void)mp;
     if (logfs_path_is_file(path))
     {
+        if (logfs_lock() != 0)
+        {
+            return -EIO;
+        }
         (void)strncpy(entry->name, "app.log", sizeof(entry->name) - 1U);
+        entry->name[sizeof(entry->name) - 1U] = '\0';
         entry->size = (size_t)ef_log_get_used_size();
         entry->type = FS_DIR_ENTRY_FILE;
+        logfs_unlock();
         return 0;
     }
     if ((strcmp(path, "/log") == 0) || (strcmp(path, "/") == 0))
     {
         (void)strncpy(entry->name, (path[1] == '\0') ? "/" : "log",
                       sizeof(entry->name) - 1U);
+        entry->name[sizeof(entry->name) - 1U] = '\0';
         entry->size = 0U;
         entry->type = FS_DIR_ENTRY_DIR;
         return 0;
@@ -320,8 +343,12 @@ static int logfs_unlink(fs_mount_t *mp, const char *path)
     {
         return -EIO;
     }
+    if (g_writer)
+    {
+        logfs_unlock();
+        return -EBUSY;
+    }
     g_wlen = 0U;
-    g_writer = false;
     (void)ef_log_clean();
     logfs_unlock();
     return 0;
@@ -338,7 +365,7 @@ static int logfs_rename(fs_mount_t *mp, const char *old_path, const char *new_pa
 static int logfs_mkdir(fs_mount_t *mp, const char *path)
 {
     (void)mp;
-    return (strcmp(path, "/log") == 0) ? 0 : -EINVAL;
+    return ((strcmp(path, "/log") == 0) || (strcmp(path, "/") == 0)) ? 0 : -EINVAL;
 }
 
 static int logfs_opendir(fs_dir_t *dp, const char *path)
@@ -366,15 +393,20 @@ static int logfs_readdir(fs_dir_t *dp, fs_dirent_t *entry)
         entry->name[sizeof(entry->name) - 1U] = '\0';
         entry->size = 0U;
         entry->type = FS_DIR_ENTRY_DIR;
-        dp->priv = (void *)(uintptr_t)1U;
+        dp->priv = (void *)(uintptr_t)3U;
         return 0;
     }
     if (idx == 1U)
     {
+        if (logfs_lock() != 0)
+        {
+            return -EIO;
+        }
         (void)strncpy(entry->name, "app.log", sizeof(entry->name) - 1U);
         entry->name[sizeof(entry->name) - 1U] = '\0';
         entry->size = (size_t)ef_log_get_used_size();
         entry->type = FS_DIR_ENTRY_FILE;
+        logfs_unlock();
         dp->priv = (void *)(uintptr_t)2U;
         return 0;
     }
@@ -389,15 +421,26 @@ static int logfs_closedir(fs_dir_t *dp)
 
 static int logfs_statvfs(fs_mount_t *mp, fs_statvfs_t *stat)
 {
-    unsigned long total = (unsigned long)ef_log_get_total_size();
-    unsigned long used = (unsigned long)ef_log_get_used_size();
+    unsigned long total;
+    unsigned long used;
 
     (void)mp;
+    if (stat == 0)
+    {
+        return -EINVAL;
+    }
+    if (logfs_lock() != 0)
+    {
+        return -EIO;
+    }
+    total = (unsigned long)ef_log_get_total_size();
+    used = (unsigned long)ef_log_get_used_size();
     stat->block_size = 1U;
     stat->total_blocks = total;
     stat->free_blocks = (used < total) ? (total - used) : 0U;
     stat->total_bytes = total;
     stat->free_bytes = stat->free_blocks;
+    logfs_unlock();
     return 0;
 }
 
